@@ -1,0 +1,21 @@
+{
+  "upstream": "https://github.com/folotoy/ai-passport",
+  "revision": "0b9e4c81ee4421c0bac39ca3561d65a8285acd4a",
+  "verified_files": 263,
+  "mismatches": [],
+  "git_history": false,
+  "restored_assets": [
+    "assets/images/home.jpg",
+    "assets/images/logo-wordmark-dark.png",
+    "assets/images/logo-wordmark.png",
+    "assets/images/logo.png",
+    "assets/images/readme-hardware-specs.png",
+    "docs/brand/ai-passport-back.webp",
+    "docs/brand/ai-passport-front-eva-00.png",
+    "docs/brand/ai-passport-front-eva-01.png",
+    "docs/brand/ai-passport-front-eva-02.png",
+    "docs/brand/ai-passport-front.png",
+    "docs/brand/ai-passport-views.jpg"
+  ],
+  "restoration": "Git blob SHA-1 verified on 2026-10-03; see tools/source-assets.json"
+}

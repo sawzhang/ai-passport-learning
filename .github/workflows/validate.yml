@@ -1,0 +1,38 @@
+name: Validate learning lab
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      build_firmware:
+        description: Build ESP32-C3 firmware with ESP-IDF 5.5.3
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  host:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - name: Run host and static checks
+        run: ./tools/test.sh
+
+  firmware:
+    if: github.event_name == 'workflow_dispatch' && inputs.build_firmware
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: espressif/esp-idf-ci-action@9d38657f3d789ca759b2b37aaf5ceffbc42c4f0d
+        with:
+          esp_idf_version: v5.5.3
+          target: esp32c3
+          command: cd firmware && ./tools/validate.sh --firmware
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ai-passport-games
+          path: firmware/build/FoloToy-AI-Passport-full.bin
+          if-no-files-found: error
