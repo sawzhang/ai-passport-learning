@@ -15,5 +15,13 @@
   "panic_count": 0,
   "error_log_count": 0,
   "pairing": "pending",
-  "wifi": "not_provisioned"
+  "wifi": "not_provisioned",
+  "app_sha256": "648ea4085d3c6d045b0dfbfb5f139429ba7d4469d713c22112ee54eb0715e230",
+  "later_provisioning_fix": {
+    "app_sha256": "2a52f002666c05f14575b733a2d622c679c2d736b5ae42eda0847cbf68039e09",
+    "host_tests": 158,
+    "passed": 157,
+    "skipped": 1,
+    "phone_retest": "pending"
+  }
 }

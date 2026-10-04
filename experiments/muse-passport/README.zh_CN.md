@@ -11,7 +11,7 @@
 1. 安装并激活官方 ESP-IDF **6.0.1**，不要使用游戏项目的 5.5.3 环境。
 2. 运行 `python3 prepare.py`，它获取 `UPSTREAM` 中固定的 SDK 提交，将 `muse-sdk.patch` 和 `overlay/` 应用到被忽略的 `.work/`。已存在目录不会被覆盖。准备后阅读上游 `AGENTS.md`。
 3. 把自己的 SDK token 写入仓库外的私有文本文件（权限 0600）。设置 `MUSE_TOKEN_FILE` 为该文件路径，运行 `python3 build.py`。构建配置和固件含 token，不能上传。
-4. 在 `.work/muse-gadget-sdk/esp32` 运行 `python -m unittest discover -s tests -p 'test_*.py'`。只测 ADC 适配可在本实验目录运行 `python3 -m unittest discover -s overlay/esp32/tests`。
+4. 在 `.work/muse-gadget-sdk/esp32` 运行 `python -m unittest discover -s tests -p 'test_*.py'`。只测 ADC 适配可在本实验目录运行 `python3 -m unittest discover -s overlay/esp32/tests -p test_passport_keys.py`。
 5. 运行 `python3 verify.py` 检查目标、Flash、镜像头、校验和与分区布局，再运行上游 `tools/muse/board.sh flash passport /dev/cu.usbmodemXXX`，端口以本机实际枚举为准。不使用默认 C5 固件，不执行整片擦除或 eFuse 写入。
 6. Muse 手机 app 开启 Developer mode，选择广播的 `MuseGadget-…`，按设备 OK 确认，并通过 app 配置 **2.4GHz Wi-Fi**。
 

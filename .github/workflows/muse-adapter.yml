@@ -13,6 +13,10 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
       - name: Compile and exercise ADC state machine
-        run: python3 -m unittest discover -s experiments/muse-passport/overlay/esp32/tests -v
+        run: python3 -m unittest discover -s experiments/muse-passport/overlay/esp32/tests -p test_passport_keys.py -v
       - name: Check reproduction scripts
         run: python3 -m py_compile experiments/muse-passport/prepare.py experiments/muse-passport/build.py experiments/muse-passport/verify.py
+      - name: Prepare pinned SDK and test BLE message reassembly
+        run: |
+          python3 experiments/muse-passport/prepare.py
+          python3 -m unittest discover -s experiments/muse-passport/.work/muse-gadget-sdk/esp32/tests -p test_ble_rx_memory.py -v

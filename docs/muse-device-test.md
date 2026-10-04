@@ -32,3 +32,11 @@ See [source and reproduction](../experiments/muse-passport/README.md). Tunnel, d
 ## 600-second unpaired run
 
 Capture lasted 600s; heartbeats span 0–596s. Free internal heap 25–30KB; largest block 7–17KB, rounded by the log. One boot, zero panics and zero E-level logs. One sleep/wake cycle. Still unpaired/unprovisioned at completion. See [machine-readable evidence](../experiments/muse-passport/test-evidence.json).
+
+## Follow-up: iPhone reports Couldn't connect to device
+
+The captured retry completed BLE connection, MTU 256, encrypted pairing, physical OK confirmation and Wi-Fi scanning. Twelve provisioning fragments arrived (11×250+37=2787 bytes), but no RX reassembled/provision_v2 event followed: router association had not begun. The receiver always allocated 8192 contiguous bytes while the observed largest block was about 7KB, consistent with its silent allocation-failure path.
+
+The fix sizes initial allocation to the message (3000 bytes here), grows for variable fragments within the unchanged 8192-byte limit, and logs allocation failures. Passport avatar decoding uses four-row strips instead of sixteen. A regression harness executes the actual receiver with a 4KB allocation ceiling, the iPhone packet sequence, varying fragment sizes, invalid ordering, allocation failures, recovery and size boundaries. Host suite: 158 tests, 157 passed, the same PSA development-library test skipped, 65.455s. Build, image verification, four flash hashes and audio startup passed. Free heap: 46364 bytes after UI, 19420 after audio; largest idle block about 11KB.
+
+Current flashed app SHA-256: `2a52f002666c05f14575b733a2d622c679c2d736b5ae42eda0847cbf68039e09`. **A fresh iPhone provisioning attempt on this build is pending; end-to-end Wi-Fi success is not yet established.** The 600-second evidence above applies to the preceding build. TLS and cloud voice remain pending.

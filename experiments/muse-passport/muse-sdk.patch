@@ -68,10 +68,22 @@ index 681e496..7146c0c 100644
  
      # The Muse tools' serial port: the console UART behind the board's USB
 diff --git a/esp32/components/muse/muse_ui.c b/esp32/components/muse/muse_ui.c
-index 528320f..c084663 100644
+index 528320f..8727063 100644
 --- a/esp32/components/muse/muse_ui.c
 +++ b/esp32/components/muse/muse_ui.c
-@@ -277,6 +277,10 @@ static void muse_image_init(void)
+@@ -184,7 +184,11 @@ static const char *const MODE_NAMES[MUSE_MODE_COUNT] = {
+  * each with its own open decoder, so each one takes its own strip: with one
+  * shared strip, a tile blended rows the other had just scaled into it.
+  */
++#if CONFIG_MUSE_BOARD_FOLOTOY_AI_PASSPORT
++#define STRIP_ROWS 4 // Keep contiguous RAM available for BLE provisioning/TLS.
++#else
+ #define STRIP_ROWS 16
++#endif
+ #define STRIPS LV_DRAW_SW_DRAW_UNIT_CNT
+ 
+ #define MUSE_PIXEL_MAX_PX 512   /* muse_pixel_set_size's cap */
+@@ -277,6 +281,10 @@ static void muse_image_init(void)
      lv_image_decoder_set_close_cb(dec, muse_dec_close);
      dec->name = "muse";
  
@@ -82,7 +94,7 @@ index 528320f..c084663 100644
      s_cells = heap_caps_malloc(MUSE_PX_W * MUSE_PX_H * sizeof(uint16_t), MUSE_BIG_CAPS);
      s_cell_row = heap_caps_malloc(MUSE_PIXEL_MAX_PX * sizeof(uint16_t), MUSE_BIG_CAPS);
      if (!s_cells || !s_cell_row) {
-@@ -1493,6 +1497,9 @@ esp_err_t muse_ui_start(void)
+@@ -1493,6 +1501,9 @@ esp_err_t muse_ui_start(void)
       * captions. Short landscape panels (BOX-3) need the compact layout too. */
      bool short_landscape = s_w > s_h && s_h < 320;
      s_small = s_h < 200 || s_w < 200 || short_landscape;
@@ -139,6 +151,51 @@ index 0c1d350..436547d 100644
 +## Experimental FoloToy AI Passport
 +
 +Use the `muse-folotoy-ai-passport` overlay and `tools/muse/board.sh build passport`. This bench profile uses the compact Muse UI, three ADC keys, ES8311 audio and CW2017 battery meter. OK is push-to-talk; UP/DOWN opens the menu, then moves the selection; OK selects; hold DOWN for 0.5 seconds to return. Without PSRAM it uses Link voice upload and text replies, with tunnel, downloaded images and OTA disabled. USB-present/charging detection is not validated: USB is reported present to disable automatic battery sleep; software power-off is unsupported. Use the physical switch. Read the external experiment report for actual test status.
+diff --git a/esp32/main/ble_server.c b/esp32/main/ble_server.c
+index 889efea..5e58771 100644
+--- a/esp32/main/ble_server.c
++++ b/esp32/main/ble_server.c
+@@ -529,15 +529,37 @@ static void handle_rx_write_locked(const uint8_t *data, size_t len,
+         if (idx == 0 || s_rx_total != total) {
+             rx_reset_locked();
+             s_rx_total = total;
+-            s_rx_cap = MAX_RX_TOTAL_BYTES;
++            // Size the first allocation to this message, not the 8 KB limit.
++            // A phone's provisioning record is typically ~3 KB; an 8 KB
++            // contiguous block may not exist beside a no-PSRAM display UI.
++            s_rx_cap = (size_t)total * flen;
++            if (s_rx_cap > MAX_RX_TOTAL_BYTES) s_rx_cap = MAX_RX_TOTAL_BYTES;
++            if (!s_rx_cap) { rx_reset_locked(); return; }
+             s_rx_buf = malloc(s_rx_cap);
+-            if (!s_rx_buf) { rx_reset_locked(); return; }
++            if (!s_rx_buf) {
++                ESP_LOGE(TAG, "RX allocation failed (%u bytes)", (unsigned)s_rx_cap);
++                rx_reset_locked(); return;
++            }
+             s_rx_len = 0;
+         }
+ 
+         if (idx != s_rx_next_idx || idx >= s_rx_total) { rx_reset_locked(); return; }
+ 
+-        if (s_rx_len + flen > s_rx_cap) { rx_reset_locked(); return; }
++        if (flen > MAX_RX_TOTAL_BYTES - s_rx_len) { rx_reset_locked(); return; }
++        size_t needed = s_rx_len + flen;
++        if (needed > s_rx_cap) {
++            // Fragment lengths can vary; retain the original hard size limit.
++            size_t capacity = s_rx_cap * 2;
++            if (capacity < needed) capacity = needed;
++            if (capacity > MAX_RX_TOTAL_BYTES) capacity = MAX_RX_TOTAL_BYTES;
++            uint8_t *grown = realloc(s_rx_buf, capacity);
++            if (!grown) {
++                ESP_LOGE(TAG, "RX growth failed (%u bytes)", (unsigned)capacity);
++                rx_reset_locked(); return;
++            }
++            s_rx_buf = grown;
++            s_rx_cap = capacity;
++        }
+         memcpy(s_rx_buf + s_rx_len, frag, flen);
+         s_rx_len += flen;
+         s_rx_count++;
 diff --git a/esp32/tools/muse/avatar.py b/esp32/tools/muse/avatar.py
 index e943eb2..a2d5a8d 100644
 --- a/esp32/tools/muse/avatar.py

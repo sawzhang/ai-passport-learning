@@ -9,7 +9,7 @@ Experimental board adapter for FoloToy AI Passport: ESP32-C3, 8MB Flash, no PSRA
 1. Install and activate official **ESP-IDF 6.0.1** in a separate environment from the games project (5.5.3).
 2. Run `python3 prepare.py`. It checks out the SDK commit in `UPSTREAM`, applies `muse-sdk.patch`, and copies `overlay/` into ignored `.work/`. It refuses to overwrite an existing workspace. Read upstream AGENTS.md before building.
 3. Save your SDK token in a private file outside the repository (0600). Set `MUSE_TOKEN_FILE` to its path, then run `python3 build.py`. Generated configuration and firmware contain the token: keep them private.
-4. In `.work/muse-gadget-sdk/esp32`, run `python -m unittest discover -s tests -p 'test_*.py'`. For the ADC helper alone, run `python3 -m unittest discover -s overlay/esp32/tests` from this experiment.
+4. In `.work/muse-gadget-sdk/esp32`, run `python -m unittest discover -s tests -p 'test_*.py'`. For the ADC helper alone, run `python3 -m unittest discover -s overlay/esp32/tests -p test_passport_keys.py` from this experiment.
 5. Run `python3 verify.py` to validate target, flash size, image headers, checksums and partition bounds, then run upstream `tools/muse/board.sh flash passport /dev/cu.usbmodemXXX`, using the actual enumerated port. Never flash the default C5 image, erase the whole chip or burn eFuses.
 6. Enable Developer mode in the Muse phone app, select `MuseGadget-…`, confirm with physical OK, then provision **2.4GHz Wi-Fi** through the app.
 
