@@ -1,0 +1,203 @@
+diff --git a/esp32/AGENTS.md b/esp32/AGENTS.md
+index 31d5797..6533b37 100644
+--- a/esp32/AGENTS.md
++++ b/esp32/AGENTS.md
+@@ -45,6 +45,7 @@ before adding a feature to one.
+ 
+ | Board | Target | Overlay(s) after `sdkconfig.defaults` | Helper |
+ |---|---|---|---|
++| FoloToy AI Passport (experimental) | `esp32c3` | `devices/sdkconfig.muse;devices/sdkconfig.muse-folotoy-ai-passport` | `tools/muse/board.sh build passport` |
+ | ESP32-C5 DevKitC-1 (default) | `esp32c5` | none | `tools/board.sh devkit` |
+ | ideaspark ESP32 + 1.9" ST7789 | `esp32` | `devices/sdkconfig.ideaspark` | `tools/board.sh ideaspark` |
+ | Seeed SenseCAP Indicator | `esp32s3` | `devices/sdkconfig.sensecap-indicator` | `tools/board.sh sensecap-indicator` |
+diff --git a/esp32/README.md b/esp32/README.md
+index 56aafae..09db271 100644
+--- a/esp32/README.md
++++ b/esp32/README.md
+@@ -275,3 +275,7 @@ their upstream licenses:
+ 
+ ESP-IDF components fetched at build time (into `managed_components/`) are
+ under their own licenses.
++
++### Experimental FoloToy AI Passport
++
++The ESP32-C3 / 8MB / no-PSRAM profile is `devices/sdkconfig.muse-folotoy-ai-passport`. Build with ESP-IDF 6.0.1 and `tools/muse/board.sh build passport`; supply your SDK token privately in the build configuration first. See [device notes](devices/README.md#experimental-folotoy-ai-passport) for limitations.
+diff --git a/esp32/components/muse/CMakeLists.txt b/esp32/components/muse/CMakeLists.txt
+index f3bec9f..9db4a6b 100644
+--- a/esp32/components/muse/CMakeLists.txt
++++ b/esp32/components/muse/CMakeLists.txt
+@@ -62,6 +62,8 @@ if(CONFIG_MUSE_ENABLED)
+     if(CONFIG_MUSE_BOARD_WAVESHARE_S3_175C OR CONFIG_MUSE_BOARD_WAVESHARE_S3_175)
+         # One driver: the 1.75 differs only in pins (its BSP's) and its PWR key.
+         list(APPEND srcs "boards/board_waveshare_s3_175c.c" "boards/muse_lcd_bands.c")
++    elseif(CONFIG_MUSE_BOARD_FOLOTOY_AI_PASSPORT)
++        list(APPEND srcs "boards/board_folotoy_ai_passport.c")
+     elseif(CONFIG_MUSE_BOARD_AIPI)
+         list(APPEND srcs "boards/board_aipi.c")
+     elseif(CONFIG_MUSE_BOARD_ESPRESSIF_BOX_3)
+@@ -104,7 +106,7 @@ idf_component_register(
+     INCLUDE_DIRS "."
+     EMBED_FILES ${embed}
+     WHOLE_ARCHIVE   # muse_lv_mem.c provides symbols only LVGL references
+-    REQUIRES esp_driver_gpio esp_driver_i2c
++    REQUIRES esp_driver_gpio esp_driver_i2c passport_bsp
+     PRIV_REQUIRES ${muse_priv_requires}
+ )
+ 
+diff --git a/esp32/components/muse/Kconfig b/esp32/components/muse/Kconfig
+index 681e496..7146c0c 100644
+--- a/esp32/components/muse/Kconfig
++++ b/esp32/components/muse/Kconfig
+@@ -24,6 +24,10 @@ menu "Muse"
+             pairing, credentials and OTA. Pick the board it runs on, or none
+             for a Link without a display.
+ 
++        config MUSE_BOARD_FOLOTOY_AI_PASSPORT
++            bool "FoloToy AI Passport (ESP32-C3, ADC buttons)"
++            depends on IDF_TARGET_ESP32C3
++
+         config MUSE_BOARD_NONE
+             bool "None (Home Link without a display)"
+ 
+@@ -91,6 +95,7 @@ menu "Muse"
+         default "m5stack_cardputer_adv" if MUSE_BOARD_M5STACK_CARDPUTER_ADV
+         default "m5stack_stopwatch" if MUSE_BOARD_M5STACK_STOPWATCH
+         default "m5stack_cores3" if MUSE_BOARD_M5STACK_CORES3
++        default "folotoy_ai_passport" if MUSE_BOARD_FOLOTOY_AI_PASSPORT
+         default "none"
+ 
+     # The Muse tools' serial port: the console UART behind the board's USB
+diff --git a/esp32/components/muse/muse_ui.c b/esp32/components/muse/muse_ui.c
+index 528320f..c084663 100644
+--- a/esp32/components/muse/muse_ui.c
++++ b/esp32/components/muse/muse_ui.c
+@@ -277,6 +277,10 @@ static void muse_image_init(void)
+     lv_image_decoder_set_close_cb(dec, muse_dec_close);
+     dec->name = "muse";
+ 
++#if CONFIG_MUSE_BOARD_FOLOTOY_AI_PASSPORT
++    // Skip the optional dirty-cell cache (8 KB): redraw every frame.
++    return;
++#endif
+     s_cells = heap_caps_malloc(MUSE_PX_W * MUSE_PX_H * sizeof(uint16_t), MUSE_BIG_CAPS);
+     s_cell_row = heap_caps_malloc(MUSE_PIXEL_MAX_PX * sizeof(uint16_t), MUSE_BIG_CAPS);
+     if (!s_cells || !s_cell_row) {
+@@ -1493,6 +1497,9 @@ esp_err_t muse_ui_start(void)
+      * captions. Short landscape panels (BOX-3) need the compact layout too. */
+     bool short_landscape = s_w > s_h && s_h < 320;
+     s_small = s_h < 200 || s_w < 200 || short_landscape;
++#if CONFIG_MUSE_BOARD_FOLOTOY_AI_PASSPORT
++    s_small = true; // Compact card fits 240 px and avoids the full ring layout.
++#endif
+     s_tall = s_small && s_h >= s_w + 64;
+     /* Small screens keep room for the status line and button icons. A narrow
+      * one is as wide as Muse gets, in whole pixels. */
+diff --git a/esp32/components/muse/muse_voice.c b/esp32/components/muse/muse_voice.c
+index d243fea..6af5089 100644
+--- a/esp32/components/muse/muse_voice.c
++++ b/esp32/components/muse/muse_voice.c
+@@ -44,7 +44,9 @@ static const char *TAG = "muse_voice";
+ #define TAIL_FRAMES (MUSE_AUDIO_RATE * 12 / 100)   /* capture lag + poll interval, stops before the release click */
+ #define MAX_FRAMES (MUSE_AUDIO_RATE * MAX_SECS)
+ #define MIN_HELD_FRAMES (MUSE_AUDIO_RATE * 3 / 10)   /* shorter presses are taps, not speech */
+-#if CONFIG_MUSE_BOARD_M5STACK_CARDPUTER_ADV
++#if CONFIG_MUSE_BOARD_FOLOTOY_AI_PASSPORT
++#define PRE_CHUNKS 4 // 80 ms pre-roll: C3 has no PSRAM.
++#elif CONFIG_MUSE_BOARD_M5STACK_CARDPUTER_ADV
+ #define PRE_CHUNKS 6                                   /* 120 ms; a 320 ms upload burst stalls on the ADV */
+ #else
+ #define PRE_CHUNKS 16                                  /* 320 ms of audio kept from before the press */
+diff --git a/esp32/devices/AGENTS.md b/esp32/devices/AGENTS.md
+index 551e546..bfd8e86 100644
+--- a/esp32/devices/AGENTS.md
++++ b/esp32/devices/AGENTS.md
+@@ -28,6 +28,7 @@ code for it. Clone the repo rather than reading it on the web, and search it.
+ 
+ | Board | Vendor source | Where to look |
+ |---|---|---|
++| FoloToy AI Passport | [folotoy/ai-passport](https://github.com/folotoy/ai-passport) | `components/bsp`: `bsp_pins.h`, ADC voltage windows, ST7789 display, ES8311 duplex I2S and CW2017 battery profile. Local `passport_bsp` retains MIT and ports driver dependencies to IDF 6.0.1. |
+ | Waveshare ESP32-S3-Touch-AMOLED-1.75C | [waveshareteam/ESP32-S3-Touch-AMOLED-1.75C](https://github.com/waveshareteam/ESP32-S3-Touch-AMOLED-1.75C) | `Schematic/`. `examples/esp-idf/` for the AXP2101 power chip (`01_AXP2101`) and the QMI8658 IMU (`04_Immersive_block`). `examples/arduino/examples/` for the ES7210 mics and the ES8311 codec. Muse drives the display, touch and codec through its BSP, `waveshare/esp32_s3_touch_amoled_1_75c`. |
+ | Waveshare ESP32-S3-Touch-AMOLED-1.75 | [waveshareteam/ESP32-S3-Touch-AMOLED-1.75](https://github.com/waveshareteam/ESP32-S3-Touch-AMOLED-1.75) | The 1.75C's chips on other pins (LCD and touch reset on GPIO 39 and 40, MCLK on 42), plus an SD slot on GPIO 1 to 3 and a TCA9554 expander. PWR reaches the ESP32 only through the AXP2101. Muse uses the 1.75C driver with its BSP, `waveshare/esp32_s3_touch_amoled_1_75`. |
+ | Seeed SenseCAP Watcher | [Seeed-Studio/SenseCAP-Watcher-Firmware](https://github.com/Seeed-Studio/SenseCAP-Watcher-Firmware) | `components/sensecap-watcher/` is Seeed's BSP. `include/sensecap-watcher.h` has the pins for the LCD, touch, knob, IO expander, audio, battery, SD card and the Himax camera chip (driven through `components/sscma_client/`). `examples/factory_firmware/` is the firmware it ships with. xiaozhi-esp32's [sensecap-watcher board](https://github.com/78/xiaozhi-esp32/tree/main/main/boards/sensecap-watcher) is a second reference. |
+diff --git a/esp32/devices/README.md b/esp32/devices/README.md
+index 0c1d350..436547d 100644
+--- a/esp32/devices/README.md
++++ b/esp32/devices/README.md
+@@ -29,6 +29,7 @@ session to Muse. The rest depends on the hardware.
+ 
+ | Board | Chip | Display | Flash / PSRAM | Reference | Buy |
+ |---|---|---|---|---|---|
++| **FoloToy AI Passport (experimental)** | ESP32-C3 | 240×320 ST7789, no touch | 8 MB / none | [FoloToy source](https://github.com/folotoy/ai-passport) | — |
+ | **ESP32-C5 DevKitC-1** | ESP32-C5 | None (RGB status light) | 8 MB / 8 MB | [Espressif docs](https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32c5/esp32-c5-devkitc-1/index.html) | [DigiKey](https://www.digikey.com/en/products/result?keywords=ESP32-C5-DevKitC-1) |
+ | **ideaspark ESP32 with 1.9" display** | ESP32 | 1.9" 170×320 LCD | 16 MB / none | — | [Amazon](https://www.amazon.com/s?k=ideaspark+ESP32+1.9+inch+ST7789) |
+ | **Seeed SenseCAP Indicator** | ESP32-S3 | 4" 480×480 LCD | 8 MB / 8 MB | [Seeed wiki](https://wiki.seeedstudio.com/SenseCAP_Indicator_Get_Started/) | [Seeed Studio](https://www.seeedstudio.com/SenseCAP-Indicator-D1-p-5643.html) |
+@@ -324,3 +325,7 @@ The camera uses the existing Himax firmware. It's powered only while a capture
+ or the live view runs (a capture takes under a second, start-up included), and
+ nothing polls it in between.
+ Photo attachments to voice messages are not included.
++
++## Experimental FoloToy AI Passport
++
++Use the `muse-folotoy-ai-passport` overlay and `tools/muse/board.sh build passport`. This bench profile uses the compact Muse UI, three ADC keys, ES8311 audio and CW2017 battery meter. OK is push-to-talk; UP/DOWN opens the menu, then moves the selection; OK selects; hold DOWN for 0.5 seconds to return. Without PSRAM it uses Link voice upload and text replies, with tunnel, downloaded images and OTA disabled. USB-present/charging detection is not validated: USB is reported present to disable automatic battery sleep; software power-off is unsupported. Use the physical switch. Read the external experiment report for actual test status.
+diff --git a/esp32/tools/muse/avatar.py b/esp32/tools/muse/avatar.py
+index e943eb2..a2d5a8d 100644
+--- a/esp32/tools/muse/avatar.py
++++ b/esp32/tools/muse/avatar.py
+@@ -58,6 +58,7 @@ ERROR_LINES = 60
+ 
+ # muse_board->name, as "@status" reports it -> tools/muse/board.sh's name
+ BOARDS = {
++    "FoloToy AI Passport": "passport",
+     "Espressif ESP32-S3-BOX-3": "box3",
+     "Waveshare ESP32-S3-Touch-AMOLED-1.75C": "s3",
+     "Waveshare ESP32-S3-Touch-AMOLED-1.75": "s3n",
+diff --git a/esp32/tools/muse/board.sh b/esp32/tools/muse/board.sh
+index 31dc2b0..3e1d576 100755
+--- a/esp32/tools/muse/board.sh
++++ b/esp32/tools/muse/board.sh
+@@ -14,7 +14,7 @@
+ # limitations under the License.
+ 
+ # Build or flash Home Link for one board:
+-#   tools/muse/board.sh build|flash <s3|s3n|aipi|box3|c6|watcher|sticks3|plus2|cardputer-adv|stopwatch|cores3> [serial|port]
++#   tools/muse/board.sh build|flash <s3|s3n|aipi|box3|passport|c6|watcher|sticks3|plus2|cardputer-adv|stopwatch|cores3> [serial|port]
+ # Build log: /tmp/muse_build_<board>.log. flash finds the board's port by its
+ # USB device (tools/muse/ports.py); with several of a kind attached, pass the
+ # one's USB serial number (the MAC on native USB) or its port. Flashing from a
+@@ -23,13 +23,14 @@
+ # flashes in build-muse-<profile>-bench/, so neither build's sdkconfig hides
+ # the other's.
+ set -uo pipefail
+-cmd=${1:?build|flash}; board=${2:?s3|s3n|aipi|box3|c6|watcher|sticks3|plus2|cardputer-adv|stopwatch|cores3}
++cmd=${1:?build|flash}; board=${2:?s3|s3n|aipi|box3|passport|c6|watcher|sticks3|plus2|cardputer-adv|stopwatch|cores3}
+ root=$(cd "$(dirname "$0")/../.." && pwd)
+ case $board in
+     s3)      profile=waveshare-s3-175c;    target=esp32s3 ;;
+     s3n)     profile=waveshare-s3-175;     target=esp32s3 ;;
+     aipi)    profile=aipi;                 target=esp32s3 ;;
+     box3)    profile=espressif-box-3;       target=esp32s3 ;;
++    passport) profile=folotoy-ai-passport; target=esp32c3 ;;
+     c6)      profile=waveshare-c6-18;      target=esp32c6 ;;
+     # Its CH342 bridge drops bytes when esptool sends a whole packet at once,
+     # so pace the writes (paced_esptool.py) at the baud they were tested at.
+diff --git a/esp32/tools/muse/ports.py b/esp32/tools/muse/ports.py
+index 0b2efb5..c48e0e7 100755
+--- a/esp32/tools/muse/ports.py
++++ b/esp32/tools/muse/ports.py
+@@ -33,6 +33,7 @@ CH9102 = (0x1A86, 0x55D4)   # WCH single UART bridge
+ 
+ # board.sh's name -> the USB device carrying its console.
+ USB = {
++    "passport": USJ,
+     "s3": USJ,
+     "s3n": USJ,
+     "aipi": USJ,
+@@ -47,7 +48,7 @@ USB = {
+ }
+ # Boards whose console takes Muse's serial commands (tools/muse/chat.py). The
+ # Watcher reads them on its CH342 port with MUSE_CONSOLE_UART.
+-COMMANDS = ("s3", "s3n", "aipi", "box3", "c6", "sticks3", "watcher", "plus2", "cardputer-adv", "stopwatch", "cores3")
++COMMANDS = ("passport", "s3", "s3n", "aipi", "box3", "c6", "sticks3", "watcher", "plus2", "cardputer-adv", "stopwatch", "cores3")
+ # Bridges that drop bytes when a whole packet arrives at once, so writes to them
+ # go 64 bytes at a time at the line rate (paced_esptool.py, chat.Board.write).
+ PACED = (CH342,)

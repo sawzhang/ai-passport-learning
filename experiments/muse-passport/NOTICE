@@ -1,0 +1,5 @@
+Original AI Passport adapter, ADC helper, scripts and experiment documentation: MIT, sawzhang.
+Copied passport_bsp source retains its own FoloToy MIT license.
+The Muse SDK patch modifies Apache-2.0 source by Meta Platforms, Inc. and affiliates; upstream copyright headers remain in the patched files.
+Upstream default avatar is excluded from Apache-2.0 and is not distributed in this experiment.
+No SDK token, generated firmware, signing key or private device log is distributed.

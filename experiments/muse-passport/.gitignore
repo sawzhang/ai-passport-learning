@@ -1,0 +1,5 @@
+.work/
+.local/
+__pycache__/
+*.bin
+*.elf

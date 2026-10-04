@@ -1,0 +1,19 @@
+{
+  "capture_seconds": 600,
+  "heartbeat_count": 120,
+  "first_heartbeat_s": 0,
+  "last_heartbeat_s": 596,
+  "free_internal_kb_range": [
+    25,
+    30
+  ],
+  "largest_internal_block_kb_range": [
+    7,
+    17
+  ],
+  "boot_count": 1,
+  "panic_count": 0,
+  "error_log_count": 0,
+  "pairing": "pending",
+  "wifi": "not_provisioned"
+}

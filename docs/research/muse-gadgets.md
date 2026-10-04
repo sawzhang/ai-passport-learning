@@ -2,11 +2,11 @@
 
 # Muse Gadgets research
 
-Reviewed 2026-10-03. This is source research; no Muse token, account pairing, SDK installation or hardware port was performed.
+Initial review 2026-10-03; experiment update 2026-10-04. A C3 adapter was built with ESP-IDF 6.0.1 and flashed; boot and audio-driver checks succeeded. Pairing, network and voice acceptance remain incomplete. See the [device report](../muse-device-test.md) and [reproduction sources](../../experiments/muse-passport/README.md).
 
 The [official SDK](https://github.com/facebookincubator/muse-gadget-sdk) offers ESP32 peripherals and Linux execution hosts. Device pairing requires a token and the Muse app. Source is Apache-2.0 with third-party exceptions; the avatar is excluded from that license.
 
-The [ESP32 README](https://github.com/facebookincubator/muse-gadget-sdk/blob/main/esp32/README.md) specifies ESP-IDF 6.0.1. Its listed targets include C5/S3/C6/classic ESP32; AI Passport/C3 is not listed. No-PSRAM boards omit the home-network tunnel. Push-to-talk replies are text; spoken replies require an added TTS service. Thus direct AI Passport support remains unverified. Component metadata accepting IDF >=5.1 does not override the documented 6.0.1 build requirement.
+The [ESP32 README](https://github.com/facebookincubator/muse-gadget-sdk/blob/main/esp32/README.md) specifies ESP-IDF 6.0.1. Its listed targets include C5/S3/C6/classic ESP32; AI Passport/C3 is not listed. No-PSRAM boards omit the home-network tunnel. Push-to-talk replies are text; spoken replies require an added TTS service. This repository adds an experimental C3 adapter with successful boot, but the cloud path is still unverified. The pinned Muse component accepts IDF >=5.5; the project still requires 6.0.1.
 
 The [Linux SDK](https://github.com/facebookincubator/muse-gadget-sdk/blob/main/linux/README.md) exposes shell execution, file read/write and device health. It runs with the installed account's rights, including sudo if available. This is a better place for substantial integrations and persistent services than the C3.
 
@@ -14,9 +14,9 @@ The [Linux SDK](https://github.com/facebookincubator/muse-gadget-sdk/blob/main/l
 
 [Token terms](https://gadgets.muse.ai/sdk-terms) separate service access from source rights: personal non-commercial use, a 50-device ceiling under specified sharing conditions, no public commercial distribution without permission, and revocable unsupported access. An Apache license alone does not establish commercial service access.
 
-## Proposed experiment
+## Original proposed experiment (2026-10-03)
 
-Keep the tested games baseline intact. First connect a Linux gateway and mock a tiny status/confirmation protocol. Then assess a separate C3 branch: target compilation, BLE pairing, TLS/reconnection heap, display/button adaptation and audio buffers. Measure each stage; do not promise full Home Link parity. Credentials belong in ignored local configuration. Nothing here constitutes a working Muse integration.
+Keep the tested games baseline intact. First connect a Linux gateway and mock a tiny status/confirmation protocol. Then assess a separate C3 branch: target compilation, BLE pairing, TLS/reconnection heap, display/button adaptation and audio buffers. Measure each stage; do not promise full Home Link parity. Credentials belong in ignored local configuration. The C3 port has reached boot/driver verification; the device report tracks remaining integration tests.
 
 ## Choosing a route for this board
 

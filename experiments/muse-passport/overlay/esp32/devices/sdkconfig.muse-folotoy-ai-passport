@@ -1,0 +1,61 @@
+# FoloToy AI Passport: ESP32-C3, 8MB Flash, no PSRAM, native USB 303a:1001.
+# Pins and ADC voltage windows follow the FoloToy BSP snapshot in passport_bsp.
+# Load after sdkconfig.defaults and devices/sdkconfig.muse.
+CONFIG_IDF_TARGET="esp32c3"
+CONFIG_MUSE_BOARD_FOLOTOY_AI_PASSPORT=y
+CONFIG_LV_DRAW_SW_DRAW_UNIT_CNT=1
+
+CONFIG_SPIRAM=n
+CONFIG_MBEDTLS_INTERNAL_MEM_ALLOC=y
+CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC=n
+# Servers may still send 16 KB records, so only shrink outbound.
+CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=4096
+# With BLE up during pairing the largest free block is ~14 KB, too small for
+# the fixed 16 KB input buffer. Dynamic buffers are sized to each record and
+# freed after the handshake. (The fragmentation that keeps them off elsewhere
+# is about PSRAM routing, and there is none here.)
+CONFIG_MBEDTLS_DYNAMIC_BUFFER=y
+CONFIG_MBEDTLS_DYNAMIC_FREE_CONFIG_DATA=y
+
+# The home-network tunnel and discovery need ~60 KB more internal RAM than the
+# control session; without them the status turns green once that is up.
+CONFIG_HOMEHUB_TUNNEL=n
+
+# Fewer Wi-Fi TX buffers and lwIP mailboxes than the S3 boards.
+CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER_NUM=16
+CONFIG_LWIP_TCP_RECVMBOX_SIZE=32
+CONFIG_LWIP_UDP_RECVMBOX_SIZE=32
+CONFIG_LWIP_TCPIP_RECVMBOX_SIZE=32
+
+# One phone at a time, a handful of notifications in flight: half the NimBLE
+# pools gives the pairing TLS handshake back ~9 KB.
+CONFIG_BT_NIMBLE_MSYS_1_BLOCK_COUNT=12
+CONFIG_BT_NIMBLE_MSYS_2_BLOCK_COUNT=12
+CONFIG_BT_NIMBLE_TRANSPORT_ACL_FROM_LL_COUNT=12
+CONFIG_BT_NIMBLE_TRANSPORT_EVT_COUNT=15
+
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="8MB"
+CONFIG_ESPTOOLPY_FLASHMODE_DIO=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_muse_8mb.csv"
+CONFIG_HOMEHUB_OTA_ENABLED=n
+CONFIG_SECURE_BOOT=n
+CONFIG_SECURE_FLASH_ENC_ENABLED=n
+CONFIG_HOMEHUB_PAIRING_EFUSE_AUTH=n
+CONFIG_HOMEHUB_NVS_ENCRYPTION=n
+CONFIG_MUSE_HATCH=n
+CONFIG_HOMEHUB_BUTTON_GPIO=0
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_160=y
+CONFIG_LV_FONT_MONTSERRAT_12=y
+
+# C3 has less usable SRAM than C6: keep RX pools and layers bounded.
+CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=4
+CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=16
+CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER_NUM=8
+CONFIG_BT_NIMBLE_MSYS_1_BLOCK_COUNT=6
+CONFIG_BT_NIMBLE_MSYS_2_BLOCK_COUNT=6
+CONFIG_BT_NIMBLE_TRANSPORT_ACL_FROM_LL_COUNT=6
+CONFIG_BT_NIMBLE_TRANSPORT_EVT_COUNT=8
+CONFIG_LV_DRAW_LAYER_SIMPLE_BUF_SIZE=4096
+CONFIG_LV_DRAW_LAYER_MAX_MEMORY=8192
+CONFIG_ESP_WIFI_RX_BA_WIN=8

@@ -1,0 +1,18 @@
+name: Validate Muse Passport adapter
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  adc-adapter:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - name: Compile and exercise ADC state machine
+        run: python3 -m unittest discover -s experiments/muse-passport/overlay/esp32/tests -v
+      - name: Check reproduction scripts
+        run: python3 -m py_compile experiments/muse-passport/prepare.py experiments/muse-passport/build.py experiments/muse-passport/verify.py
