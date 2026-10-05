@@ -19,4 +19,4 @@ jobs:
       - name: Prepare pinned SDK and test BLE message reassembly
         run: |
           python3 experiments/muse-passport/prepare.py
-          python3 -m unittest discover -s experiments/muse-passport/.work/muse-gadget-sdk/esp32/tests -p test_ble_rx_memory.py -v
+          python3 -m unittest discover -s experiments/muse-passport/.work/muse-gadget-sdk/esp32/tests -p 'test_*memory.py' -v

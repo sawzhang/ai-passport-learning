@@ -40,3 +40,15 @@ The captured retry completed BLE connection, MTU 256, encrypted pairing, physica
 The fix sizes initial allocation to the message (3000 bytes here), grows for variable fragments within the unchanged 8192-byte limit, and logs allocation failures. Passport avatar decoding uses four-row strips instead of sixteen. A regression harness executes the actual receiver with a 4KB allocation ceiling, the iPhone packet sequence, varying fragment sizes, invalid ordering, allocation failures, recovery and size boundaries. Host suite: 158 tests, 157 passed, the same PSA development-library test skipped, 65.455s. Build, image verification, four flash hashes and audio startup passed. Free heap: 46364 bytes after UI, 19420 after audio; largest idle block about 11KB.
 
 Current flashed app SHA-256: `2a52f002666c05f14575b733a2d622c679c2d736b5ae42eda0847cbf68039e09`. **A fresh iPhone provisioning attempt on this build is pending; end-to-end Wi-Fi success is not yet established.** The 600-second evidence above applies to the preceding build. TLS and cloud voice remain pending.
+
+## 2026-10-05: provisioning received, worker startup failed
+
+A continuous serial capture confirms the iPhone completed the encrypted handshake and physical OK confirmation. A 2792-byte message was reassembled and reached `provision_v2`, followed by `error_operation_in_progress` before Wi-Fi association. The first receive-buffer fix works; the phone did submit provisioning data.
+
+This error path covers both session validity and allocation of an 8 KB worker stack. Peak memory while temporary JSON, plaintext and GATT buffers coexist is the leading explanation, but the old log alone does not prove allocation failure. The new fix starts the worker after those buffers are freed, preserves session checks and failure cleanup, and logs free memory and the largest contiguous block.
+
+The firmware was built, image-validated and flashed; all four written segments passed hash verification. Application SHA-256: `52fef5412c720b4a8276865690831493b3c993a8536d5d9644e37415e175f80d`. The device is running and advertising; a fresh phone provisioning attempt is pending.
+
+New tests compile the actual C functions to verify buffer release before task creation, stale-session rejection and task-creation failure cleanup. The existing security contract test was updated for the deferred handoff. Full host suite: 159 tests, 158 passed, one skipped for missing host PSA headers, 63.675 seconds. Both memory regression tests passed after preparing the adapter from a clean upstream checkout.
+
+Wi-Fi/DHCP, cloud connectivity and end-to-end voice acceptance remain pending. The previously recorded 600-second stability run used older firmware and is not full acceptance evidence for this build.

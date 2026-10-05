@@ -152,10 +152,107 @@ index 0c1d350..436547d 100644
 +
 +Use the `muse-folotoy-ai-passport` overlay and `tools/muse/board.sh build passport`. This bench profile uses the compact Muse UI, three ADC keys, ES8311 audio and CW2017 battery meter. OK is push-to-talk; UP/DOWN opens the menu, then moves the selection; OK selects; hold DOWN for 0.5 seconds to return. Without PSRAM it uses Link voice upload and text replies, with tunnel, downloaded images and OTA disabled. USB-present/charging detection is not validated: USB is reported present to disable automatic battery sleep; software power-off is unsupported. Use the physical switch. Read the external experiment report for actual test status.
 diff --git a/esp32/main/ble_server.c b/esp32/main/ble_server.c
-index 889efea..5e58771 100644
+index 889efea..f626d80 100644
 --- a/esp32/main/ble_server.c
 +++ b/esp32/main/ble_server.c
-@@ -529,15 +529,37 @@ static void handle_rx_write_locked(const uint8_t *data, size_t len,
+@@ -25,6 +25,7 @@
+ #include <stdatomic.h>
+ 
+ #include "esp_log.h"
++#include "esp_heap_caps.h"
+ #include "esp_err.h"
+ #include "esp_bt.h"
+ #include "esp_app_desc.h"
+@@ -177,6 +178,29 @@ static void provision_task(void *arg) {
+     vTaskDelete(NULL);
+ }
+ 
++// Caller has released all message temporaries; task owns `a` on success.
++static void start_provision(provision_args_t *a) {
++    uint32_t generation = a->session_generation;
++    ESP_LOGI(TAG, "provision worker: free=%u largest=%u",
++             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
++             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
++    if (generation != 0 && link_pairing_provisioning_session_valid(generation)
++        && xTaskCreate(provision_task, "prov", 8192, a, 5, NULL) == pdPASS) return;
++    ESP_LOGE(TAG, "provision worker unavailable");
++    secure_free_str(a->ssid);
++    secure_free_str(a->password);
++    secure_free_str(a->access_token);
++    secure_free_str(a->refresh_token);
++    secure_free_str(a->username);
++    secure_free_str(a->ota_url);
++    secure_free_str(a->api_url);
++    secure_free_str(a->api_url_v2);
++    secure_free_str(a->noise_host);
++    free(a);
++    ble_server_send_pairing_status("error_operation_in_progress", generation);
++    ble_server_disconnect_pairing_session(generation);
++}
++
+ static void scan_task(void *arg) {
+     if (s_cb.on_wifi_scan) s_cb.on_wifi_scan();
+     stack_monitor_record(NULL);
+@@ -300,7 +324,8 @@ static bool command_json_depth_valid(const uint8_t *data, size_t len) {
+     return true;
+ }
+ 
+-static void dispatch_command_ex(const uint8_t *data, size_t len, bool decrypted) {
++static void dispatch_command_ex(const uint8_t *data, size_t len, bool decrypted,
++                                provision_args_t **pending) {
+     if (!command_json_depth_valid(data, len)) {
+         ble_server_send_status("error_invalid_command");
+         return;
+@@ -336,7 +361,7 @@ static void dispatch_command_ex(const uint8_t *data, size_t len, bool decrypted)
+             ble_server_send_status(err);
+             ble_server_delayed_disconnect(300);
+         } else if (plain) {
+-            dispatch_command_ex((const uint8_t *)plain, strlen(plain), true);
++            dispatch_command_ex((const uint8_t *)plain, strlen(plain), true, pending);
+             mbedtls_platform_zeroize(plain, strlen(plain));
+             free(plain);
+         }
+@@ -453,25 +478,10 @@ static void dispatch_command_ex(const uint8_t *data, size_t len, bool decrypted)
+             if (cJSON_IsString(nh) && nh->valuestring && *nh->valuestring) {
+                 a->noise_host = dup_str(nh->valuestring);
+             }
+-            // 8 KB stack — mbedtls 3.6 (IDF v6) needs significantly more
+-            // stack during TLS handshake than v5's 3.x (~2 KB more peak).
++            // Hand ownership to rx_access. It starts the 8 KB-stack worker
++            // only after encrypted JSON, plaintext and RX buffers are freed.
+             a->session_generation = link_pairing_mark_provisioning_active();
+-            if (a->session_generation == 0
+-                || xTaskCreate(provision_task, "prov", 8192, a, 5, NULL) != pdPASS) {
+-                uint32_t generation = a->session_generation;
+-                secure_free_str(a->ssid);
+-                secure_free_str(a->password);
+-                secure_free_str(a->access_token);
+-                secure_free_str(a->refresh_token);
+-                secure_free_str(a->username);
+-                secure_free_str(a->ota_url);
+-                secure_free_str(a->api_url);
+-                secure_free_str(a->api_url_v2);
+-                secure_free_str(a->noise_host);
+-                free(a);
+-                ble_server_send_pairing_status("error_operation_in_progress", generation);
+-                ble_server_disconnect_pairing_session(generation);
+-            }
++            *pending = a;
+         }
+     } else if (strcmp(act, "get_device_info") == 0) {
+         if (!atomic_exchange(&s_device_info_pending, true)) {
+@@ -491,8 +501,8 @@ static void dispatch_command_ex(const uint8_t *data, size_t len, bool decrypted)
+     delete_command_json(root, decrypted);
+ }
+ 
+-static void dispatch_command(const uint8_t *data, size_t len) {
+-    dispatch_command_ex(data, len, false);
++static void dispatch_command(const uint8_t *data, size_t len, provision_args_t **pending) {
++    dispatch_command_ex(data, len, false, pending);
+ }
+ 
+ // ---- RX reassembly ---------------------------------------------------------
+@@ -529,15 +539,37 @@ static void handle_rx_write_locked(const uint8_t *data, size_t len,
          if (idx == 0 || s_rx_total != total) {
              rx_reset_locked();
              s_rx_total = total;
@@ -196,6 +293,72 @@ index 889efea..5e58771 100644
          memcpy(s_rx_buf + s_rx_len, frag, flen);
          s_rx_len += flen;
          s_rx_count++;
+@@ -554,10 +586,10 @@ static void handle_rx_write_locked(const uint8_t *data, size_t len,
+     }
+ }
+ 
+-static void handle_rx_write(const uint8_t *data, size_t len) {
++static void handle_rx_write(const uint8_t *data, size_t len, provision_args_t **pending) {
+     if (!s_rx_mutex) return;
+     if (len < CHUNK_HEADER_BYTES || data[0] != CHUNK_MAGIC) {
+-        dispatch_command(data, len);
++        dispatch_command(data, len, pending);
+         return;
+     }
+     uint8_t *complete = NULL;
+@@ -566,7 +598,7 @@ static void handle_rx_write(const uint8_t *data, size_t len) {
+     handle_rx_write_locked(data, len, &complete, &complete_len);
+     xSemaphoreGive(s_rx_mutex);
+     if (complete) {
+-        dispatch_command(complete, complete_len);
++        dispatch_command(complete, complete_len, pending);
+         free(complete);
+     }
+ }
+@@ -585,10 +617,12 @@ static int rx_access(uint16_t conn_handle, uint16_t attr_handle,
+     if (!buf) return BLE_ATT_ERR_INSUFFICIENT_RES;
+     uint16_t out_len = 0;
+     int rc = ble_hs_mbuf_to_flat(ctxt->om, buf, total, &out_len);
++    provision_args_t *pending = NULL;
+     if (rc == 0 && out_len > 0) {
+-        handle_rx_write(buf, out_len);
++        handle_rx_write(buf, out_len, &pending);
+     }
+     free(buf);
++    if (pending) start_provision(pending);
+     return 0;
+ }
+ 
+diff --git a/esp32/tests/test_link_encrypted_pairing_contract.py b/esp32/tests/test_link_encrypted_pairing_contract.py
+index ffb7917..cb5514f 100644
+--- a/esp32/tests/test_link_encrypted_pairing_contract.py
++++ b/esp32/tests/test_link_encrypted_pairing_contract.py
+@@ -156,15 +156,17 @@ class LinkEncryptedPairingContractTest(unittest.TestCase):
+         self.assertNotIn('cJSON_GetObjectItem(root, "token")', provision_v2_block)
+         self.assertLess(
+             provision_v2_block.index("link_pairing_mark_provisioning_active()"),
+-            provision_v2_block.index("xTaskCreate(provision_task"),
++            provision_v2_block.index("*pending = a;"),
+         )
+-        self.assertIn('!= pdPASS', provision_v2_block)
+-        self.assertIn("secure_free_str(a->password)", provision_v2_block)
+-        self.assertIn("secure_free_str(a->access_token)", provision_v2_block)
+-        self.assertIn("secure_free_str(a->refresh_token)", provision_v2_block)
+-        self.assertIn("secure_free_str(a->api_url)", provision_v2_block)
+-        self.assertIn("secure_free_str(a->api_url_v2)", provision_v2_block)
+-        self.assertIn("secure_free_str(a->noise_host)", provision_v2_block)
++        self.assertNotIn("xTaskCreate(provision_task", provision_v2_block)
++        worker = _function_body(source, "static void start_provision(")
++        self.assertLess(worker.index("link_pairing_provisioning_session_valid(generation)"),
++                        worker.index("xTaskCreate(provision_task"))
++        self.assertIn("== pdPASS) return;", worker)
++        for name in ("password", "access_token", "refresh_token", "api_url", "api_url_v2", "noise_host"):
++            self.assertIn(f"secure_free_str(a->{name})", worker)
++        receive = _function_body(source, "static int rx_access(")
++        self.assertLess(receive.index("free(buf);"), receive.index("start_provision(pending)"))
+ 
+     def test_decrypted_setup_actions_require_confirmed_session(self) -> None:
+         source = BLE_SERVER_C.read_text()
 diff --git a/esp32/tools/muse/avatar.py b/esp32/tools/muse/avatar.py
 index e943eb2..a2d5a8d 100644
 --- a/esp32/tools/muse/avatar.py

@@ -23,5 +23,17 @@
     "passed": 157,
     "skipped": 1,
     "phone_retest": "pending"
+  },
+  "provisioning_worker_fix": {
+    "date": "2026-10-05",
+    "application_sha256": "52fef5412c720b4a8276865690831493b3c993a8536d5d9644e37415e175f80d",
+    "host_tests": {
+      "total": 159,
+      "passed": 158,
+      "skipped": 1,
+      "seconds": 63.675
+    },
+    "phone_retest": "pending",
+    "previous_retest": "provision_v2 received; error_operation_in_progress before Wi-Fi association"
   }
 }
