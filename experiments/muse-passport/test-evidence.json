@@ -22,7 +22,7 @@
     "host_tests": 158,
     "passed": 157,
     "skipped": 1,
-    "phone_retest": "pending"
+    "phone_retest": "Message reassembled and provision_v2 reached; worker startup failed"
   },
   "provisioning_worker_fix": {
     "date": "2026-10-05",
@@ -33,7 +33,32 @@
       "skipped": 1,
       "seconds": 63.675
     },
-    "phone_retest": "pending",
+    "phone_retest": "Pairing and Wi-Fi connected confirmed by live status; cloud Connecting",
     "previous_retest": "provision_v2 received; error_operation_in_progress before Wi-Fi association"
+  },
+  "capture_scope": "Historical unpaired 600-second run; see latest_status for subsequent live evidence",
+  "latest_status": {
+    "date": "2026-10-05",
+    "source": "live serial >status without reset",
+    "application_sha256": "52fef5412c720b4a8276865690831493b3c993a8536d5d9644e37415e175f80d",
+    "wifi": {
+      "on": true,
+      "state": "connected",
+      "rssi_dbm": -35
+    },
+    "link": {
+      "paired": true,
+      "state": "Connecting"
+    },
+    "last": "ready",
+    "network_limitation": "User reports current Wi-Fi cannot reach Muse; independent cause diagnosis pending",
+    "cloud_acceptance": "pending",
+    "voice_end_to_end": "pending",
+    "full_dhcp_trace_captured": false,
+    "fix_ci": {
+      "commit": "9fa33c9",
+      "muse_adapter": "success",
+      "learning_lab": "success"
+    }
   }
 }

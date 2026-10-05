@@ -4,6 +4,8 @@
 
 Experimental board adapter for FoloToy AI Passport: ESP32-C3, 8MB Flash, no PSRAM, 240×320 ST7789, three ADC keys, ES8311 audio and CW2017 battery meter. This is not officially supported Muse hardware. See the [test report](../../docs/muse-device-test.md) for measured results and pending acceptance checks.
 
+Latest status (2026-10-05): phone pairing and Wi-Fi succeeded; Muse cloud remains `Connecting`. The user reports restricted access on the current network; an alternative-network comparison is pending. End-to-end voice and online stability remain unvalidated.
+
 ## Reproduce
 
 1. Install and activate official **ESP-IDF 6.0.1** in a separate environment from the games project (5.5.3).

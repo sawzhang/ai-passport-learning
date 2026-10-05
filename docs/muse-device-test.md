@@ -4,7 +4,7 @@
 
 2026-10-04. Physical AI Passport: ESP32-C3 rev 1.1, 8MB Flash, no PSRAM. Pinned Muse SDK `693cde9a884ad1edc87251b9f8944815f8de4809`, experimental adapter, official ESP-IDF **6.0.1**.
 
-The firmware was built, flashed and booted. Display, ADC input and ES8311 initialization succeeded; BLE advertises for pairing. **End-to-end acceptance is incomplete**: phone pairing, provisioning, cloud session and real voice replies require further evidence. The user confirmed Developer mode is enabled.
+As of 2026-10-05, **phone pairing and Wi-Fi connectivity succeeded**: live serial status reports `paired=true`, `wifi.state=connected` and RSSI −35 dBm. Muse Link remains `Connecting`; cloud and end-to-end voice acceptance are incomplete. The user reports restricted network access on the current Wi-Fi. That explanation still needs a comparison network and DNS/TLS diagnostics. Developer mode is enabled.
 
 | Check | Evidence / status |
 | --- | --- |
@@ -16,7 +16,7 @@ The firmware was built, flashed and booted. Display, ADC input and ES8311 initia
 | Battery | CW2017 initialized; status returned 99%. Precision, charger detection and endurance untested. |
 | Audio driver | ES8311 ready, 16kHz stereo. Mic L/R -54.9dBFS, peak 231, correlation 1.00; capture 15817Hz, playback 15920Hz. Playback self-test writes silence and does not validate audible sound. |
 | Serial | Valid status/power JSON, serial typed chat unavailable. One z/w sleep/wake cycle logged successfully without errors. |
-| Phone / Wi-Fi / cloud | Pending. Initial paired=false, wifi=no_network. User phone actions are needed; serial output cannot substitute for them. |
+| Phone / Wi-Fi / cloud | Live status on 2026-10-05: paired=true, Wi-Fi connected, RSSI −35 dBm. Muse Link Connecting; cloud acceptance pending. |
 | Visual / physical keys / voice answer | Pending physical acceptance. |
 | Persistence / reconnection | Pending after pairing and joining the network. |
 | Long run | 600s capture completed, 120 heartbeats, one boot, zero panic/error logs. Unpaired state only; does not validate online stability. |
@@ -39,7 +39,7 @@ The captured retry completed BLE connection, MTU 256, encrypted pairing, physica
 
 The fix sizes initial allocation to the message (3000 bytes here), grows for variable fragments within the unchanged 8192-byte limit, and logs allocation failures. Passport avatar decoding uses four-row strips instead of sixteen. A regression harness executes the actual receiver with a 4KB allocation ceiling, the iPhone packet sequence, varying fragment sizes, invalid ordering, allocation failures, recovery and size boundaries. Host suite: 158 tests, 157 passed, the same PSA development-library test skipped, 65.455s. Build, image verification, four flash hashes and audio startup passed. Free heap: 46364 bytes after UI, 19420 after audio; largest idle block about 11KB.
 
-Current flashed app SHA-256: `2a52f002666c05f14575b733a2d622c679c2d736b5ae42eda0847cbf68039e09`. **A fresh iPhone provisioning attempt on this build is pending; end-to-end Wi-Fi success is not yet established.** The 600-second evidence above applies to the preceding build. TLS and cloud voice remain pending.
+That revision app SHA-256: `2a52f002666c05f14575b733a2d622c679c2d736b5ae42eda0847cbf68039e09`. **A fresh iPhone provisioning attempt on this build is pending; end-to-end Wi-Fi success is not yet established.** The 600-second evidence above applies to the preceding build. TLS and cloud voice remain pending.
 
 ## 2026-10-05: provisioning received, worker startup failed
 
@@ -47,8 +47,18 @@ A continuous serial capture confirms the iPhone completed the encrypted handshak
 
 This error path covers both session validity and allocation of an 8 KB worker stack. Peak memory while temporary JSON, plaintext and GATT buffers coexist is the leading explanation, but the old log alone does not prove allocation failure. The new fix starts the worker after those buffers are freed, preserves session checks and failure cleanup, and logs free memory and the largest contiguous block.
 
-The firmware was built, image-validated and flashed; all four written segments passed hash verification. Application SHA-256: `52fef5412c720b4a8276865690831493b3c993a8536d5d9644e37415e175f80d`. The device is running and advertising; a fresh phone provisioning attempt is pending.
+The firmware was built, image-validated and flashed; all four written segments passed hash verification. Application SHA-256: `52fef5412c720b4a8276865690831493b3c993a8536d5d9644e37415e175f80d`. At that checkpoint the device was advertising and awaiting a phone retry; see the later successful status below.
 
 New tests compile the actual C functions to verify buffer release before task creation, stale-session rejection and task-creation failure cleanup. The existing security contract test was updated for the deferred handoff. Full host suite: 159 tests, 158 passed, one skipped for missing host PSA headers, 63.675 seconds. Both memory regression tests passed after preparing the adapter from a clean upstream checkout.
 
 Wi-Fi/DHCP, cloud connectivity and end-to-end voice acceptance remain pending. The previously recorded 600-second stability run used older firmware and is not full acceptance evidence for this build.
+
+## 2026-10-05: pairing and Wi-Fi succeeded; cloud remains blocked
+
+A live serial `>status` query without resetting the board returned `device.wifi.on=true`, `device.wifi.state=connected`, `device.wifi.rssi=-35`, `device.link.paired=true`, `device.link.state=Connecting` and `device.last=ready`. This confirms pairing and local Wi-Fi success after the latest fix, but does not prove cloud handshake success or capture the complete DHCP sequence. The earlier continuous capture had stopped; its old advertising heartbeats are not current status.
+
+The user then reported that the current Wi-Fi cannot reach Muse because of restricted network access. This is user-provided environment information; the observed device fact is the Connecting state. No alternative-network comparison or independent DNS, TCP, TLS or service-authentication diagnosis has been completed, so other connection problems remain possible.
+
+Next acceptance: use a 2.4GHz network confirmed to provide this device access to Muse, capture connection establishment, then verify a cloud session, ten speech-input/text-reply turns, ten minutes online, network recovery and restart persistence. Until then this remains an experimental adapter without full end-to-end acceptance.
+
+Both GitHub Actions workflows for fix commit `9fa33c9` passed: Validate Muse Passport adapter and Validate learning lab. The flashed application SHA-256 remains `52fef5412c720b4a8276865690831493b3c993a8536d5d9644e37415e175f80d`. Only sanitized status is published; raw logs and credentials remain private.
