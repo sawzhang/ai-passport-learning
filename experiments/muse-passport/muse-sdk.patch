@@ -950,18 +950,23 @@ index 2c732d0..99e671a 100644
          for case in ("pressure", "heartbeat"):
              with self.subTest(case=case):
 diff --git a/esp32/tests/test_muse_chat_link_errors.py b/esp32/tests/test_muse_chat_link_errors.py
-index 1769522..6b43305 100644
+index 1769522..89d9521 100644
 --- a/esp32/tests/test_muse_chat_link_errors.py
 +++ b/esp32/tests/test_muse_chat_link_errors.py
-@@ -292,6 +292,7 @@ int main(int argc,char **argv) {
-         cjson = ROOT / 'managed_components/espressif__cjson/cJSON'
+@@ -289,9 +289,11 @@ int main(int argc,char **argv) {
+         c = Path(cls.tmp.name) / 'chat.c'
+         c.write_text(code)
+         cls.binary = c.with_suffix('')
+-        cjson = ROOT / 'managed_components/espressif__cjson/cJSON'
++        cjson = Path(os.environ.get('CJSON_SOURCE_DIR', str(
++            ROOT / 'managed_components/espressif__cjson/cJSON'))).resolve()
          compiled = subprocess.run([
              os.environ.get('CC', 'cc'), '-std=gnu11', '-Wall', '-Wextra', '-Werror',
 +            '-DCONFIG_MUSE_BOARD_FOLOTOY_AI_PASSPORT=' + str(getattr(cls, 'passport', 0)),
              '-I', str(cjson), '-I', str(ROOT / 'tests'), '-I', str(ROOT / 'components/muse'),
              str(c), str(cjson / 'cJSON.c'), '-o', str(cls.binary)
          ], capture_output=True, text=True)
-@@ -328,3 +329,7 @@ int main(int argc,char **argv) {
+@@ -328,3 +330,7 @@ int main(int argc,char **argv) {
  
      def test_transcript_and_multiple_complete_lines_need_no_receive_allocation(self):
          self.run_case(7)

@@ -12,6 +12,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - name: Check out pinned cJSON for host-only voice tests
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: DaveGamble/cJSON
+          ref: c859b25da02955fef659d658b8f324b5cde87be3 # v1.7.19, matching the firmware dependency
+          path: experiments/muse-passport/.local/host-cjson
+          persist-credentials: false
       - name: Compile and exercise ADC state machine
         run: python3 -m unittest discover -s experiments/muse-passport/overlay/esp32/tests -p test_passport_keys.py -v
       - name: Check reproduction scripts
@@ -19,6 +26,8 @@ jobs:
       - name: Test HTTP CONNECT and Mac proxy forwarding
         run: python3 -m unittest discover -s experiments/muse-passport/tests -p 'test_*.py' -v
       - name: Prepare pinned SDK and test BLE, Link memory and voice transport
+        env:
+          CJSON_SOURCE_DIR: ${{ github.workspace }}/experiments/muse-passport/.local/host-cjson
         run: |
           python3 experiments/muse-passport/prepare.py
           python3 -m unittest discover -s experiments/muse-passport/.work/muse-gadget-sdk/esp32/tests -p 'test_*memory.py' -v
