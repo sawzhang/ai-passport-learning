@@ -158,5 +158,54 @@
       "muse_adapter": "success",
       "learning_lab": "success"
     }
+  },
+  "chinese_display_fix": {
+    "date": "2026-10-06",
+    "application_sha256": "7eba5c2a5d964d334518db16abd9b5867508bf432adfe1cfc36e8b9e6b006423",
+    "application_bytes": 3805184,
+    "application_slot_bytes": 4063232,
+    "build_and_image_validation": "passed",
+    "app_only_flash_hash": "verified",
+    "font": "Noto Sans SC Regular, 16 px, 2 bpp, uncompressed Flash asset",
+    "glyph_count": 21136,
+    "gb2312_han_coverage": 6763,
+    "glyph_binding_on_device": true,
+    "caption_line_height": 31,
+    "caption_latin_columns": 29,
+    "caption_lines": 2,
+    "utf8_and_mixed_width_regression": "passed",
+    "host_suite": {
+      "total": 173,
+      "passed": 171,
+      "skipped": 2
+    },
+    "repository_tests": "passed",
+    "voice": {
+      "upload_status": 200,
+      "reply_seconds": 28.06,
+      "reply_excerpt": "行，我这就去把 Day 2 和 Day 3 的动手材料备好，弄好就发你。",
+      "scope": "Reply followed the existing learning-plan conversation; exact short-prompt compliance not established."
+    },
+    "wifi_proxy_pairing_preserved": true,
+    "link": "Online",
+    "visual_acceptance": "Actual 240x320 LCD flush pixels captured over USB and inspected: readable Chinese/Latin across two lines, no missing-glyph boxes or clipped Han characters in captured reply. Physical panel inspection remains separate.",
+    "tts": "not added; user explicitly deferred",
+    "adapter_host_tests": {
+      "total": 6,
+      "passed": 6
+    },
+    "lcd_capture": {
+      "width": 240,
+      "height": 320,
+      "complete_pixel_coverage": true,
+      "board_full_framebuffer": false
+    },
+    "voice_second_round": {
+      "upload_status": 200,
+      "reply_seconds": 7.27,
+      "reply_excerpt": "好的，显示正常就好。Day 2 / Day 3 的材料还在准备中",
+      "actual_lcd_pixels_inspected": true,
+      "scope": "Chinese is readable; Muse continued prior context rather than returning only the requested six characters."
+    }
   }
 }

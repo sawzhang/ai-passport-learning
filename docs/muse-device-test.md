@@ -2,6 +2,15 @@
 
 # Muse × AI Passport device test record
 
+## 2026-10-06: Chinese reply rendering fix
+
+The user reported unreadable Chinese on the board. The original reply label used Unscii without Chinese glyphs, counted Han characters as one Latin column and reserved compact caption height for an 8-pixel font. Replies/transcripts now use Noto Sans SC 16 px as a fallback to the monospaced Latin font, two-column CJK pagination and sufficient line height. Bounded formatting and transcript tails trim incomplete trailing UTF-8 characters.
+
+The Flash-resident uncompressed 2 bpp asset contains 21,136 glyphs, including every one of the 6,763 GB2312 Han characters; it does not claim all Unicode. See [font provenance, OFL license and reproduction](../experiments/muse-passport/overlay/esp32/components/muse/fonts/README.md). The 3,805,184-byte app fits the 4,063,232-byte slot with 258,048 bytes remaining. This fixes reply/transcript captions, not localization of every settings widget.
+
+Build: PASS, application SHA-256 `7eba5c2a5d964d334518db16abd9b5867508bf432adfe1cfc36e8b9e6b006423`. Host tests: 173 total, 171 passed, two environment-dependent skips; new checks cover GB2312 glyphs, mixed-width pagination and UTF-8 boundaries. Device tests: flash hash verified, configuration preserved, Online restored, active-label glyph lookup passed, and a microphone request returned 200 plus a Chinese reply after 28.06s. A complete 240×320 capture of actual LCD flush pixels shows readable Chinese/Latin in two lines without missing-glyph boxes or clipped Han characters in that reply. All six adapter host tests passed, including complete-frame validation. A second microphone turn returned 200 and a reply after 7.27s; a second LCD capture clearly shows “好的，显示正常就好。” Both replies continued the existing learning-plan context rather than strictly echoing the short test prompt. No crash or allocation failure appeared in the two test logs. Unverified: physical panel inspection remains separate. TTS remains deferred at the user's request.
+
+
 ## 2026-10-06: Mac proxy and microphone-to-Muse acceptance
 
 Current application SHA-256: `3b9ab20a568d8659643152a12eb31979733b392ee8ebd6e7e804687cae1d31af`. ESP-IDF 6.0.1 build and image verification passed; app-only flashing at `0x20000` passed the device hash check and preserved pairing, Wi-Fi and proxy settings.

@@ -23,7 +23,7 @@ index 56aafae..09db271 100644
 +
 +The ESP32-C3 / 8MB / no-PSRAM profile is `devices/sdkconfig.muse-folotoy-ai-passport`. Build with ESP-IDF 6.0.1 and `tools/muse/board.sh build passport`; supply your SDK token privately in the build configuration first. See [device notes](devices/README.md#experimental-folotoy-ai-passport) for limitations.
 diff --git a/esp32/components/muse/CMakeLists.txt b/esp32/components/muse/CMakeLists.txt
-index f3bec9f..338e812 100644
+index f3bec9f..55dd2a1 100644
 --- a/esp32/components/muse/CMakeLists.txt
 +++ b/esp32/components/muse/CMakeLists.txt
 @@ -62,6 +62,8 @@ if(CONFIG_MUSE_ENABLED)
@@ -31,7 +31,7 @@ index f3bec9f..338e812 100644
          # One driver: the 1.75 differs only in pins (its BSP's) and its PWR key.
          list(APPEND srcs "boards/board_waveshare_s3_175c.c" "boards/muse_lcd_bands.c")
 +    elseif(CONFIG_MUSE_BOARD_FOLOTOY_AI_PASSPORT)
-+        list(APPEND srcs "boards/board_folotoy_ai_passport.c")
++        list(APPEND srcs "boards/board_folotoy_ai_passport.c" "fonts/passport_font_cjk_16.c" "passport_lcd_capture.c")
      elseif(CONFIG_MUSE_BOARD_AIPI)
          list(APPEND srcs "boards/board_aipi.c")
      elseif(CONFIG_MUSE_BOARD_ESPRESSIF_BOX_3)
@@ -162,6 +162,29 @@ index 47a51e0..260da7c 100644
  }
  
  void muse_hatch_turn_cancel(void)
+diff --git a/esp32/components/muse/muse_chat_text.c b/esp32/components/muse/muse_chat_text.c
+index 4541c2a..4b6e244 100644
+--- a/esp32/components/muse/muse_chat_text.c
++++ b/esp32/components/muse/muse_chat_text.c
+@@ -94,6 +94,7 @@ void muse_hatch_tail_words(const char *src, char *out, size_t cap)
+         p++;
+     }
+     strlcpy(out, p, cap);
++    muse_text_trim_utf8(out);
+ }
+ 
+ /*
+@@ -111,9 +112,7 @@ static bool next_line(const char **text, int cols, const char **start, size_t *l
+     int n = 0;
+     while (*end && *end != '\n') {
+         size_t bytes;
+-        char shown[4];
+-        int w = muse_text_ascii(end, &bytes, shown);
+-        w = w < 0 ? 1 : w;
++        int w = muse_text_columns(end, &bytes);
+         if (n + w > cols && n) {
+             break;
+         }
 diff --git a/esp32/components/muse/muse_input.c b/esp32/components/muse/muse_input.c
 index 67e3540..7fc5568 100644
 --- a/esp32/components/muse/muse_input.c
@@ -182,8 +205,69 @@ index 67e3540..7fc5568 100644
      if (!strcmp(line, "status")) {
          size_t cap = 1024;   /* long SSID, host and VM names escaped: past 512 */
          char *json = heap_caps_malloc(cap, MUSE_BIG_CAPS);
+diff --git a/esp32/components/muse/muse_state.c b/esp32/components/muse/muse_state.c
+index 4dea932..190e9e3 100644
+--- a/esp32/components/muse/muse_state.c
++++ b/esp32/components/muse/muse_state.c
+@@ -115,6 +115,7 @@ void muse_state_set_caption(const char *fmt, ...)
+     va_start(ap, fmt);
+     vsnprintf(buf, sizeof(buf), fmt, ap);
+     va_end(ap);
++    muse_text_trim_utf8(buf);
+     muse_text_to_ascii(buf, sizeof(buf));   /* replies have curly quotes and dashes */
+ 
+     portENTER_CRITICAL(&s_lock);
+diff --git a/esp32/components/muse/muse_text.c b/esp32/components/muse/muse_text.c
+index 6f052a4..1ccadcd 100644
+--- a/esp32/components/muse/muse_text.c
++++ b/esp32/components/muse/muse_text.c
+@@ -227,3 +227,28 @@ const char *muse_text_showable(const char *text, char *buf, size_t cap)
+     muse_text_to_ascii(buf, cap);
+     return buf;
+ }
++
++/* Remove only a trailing partial UTF-8 character after bounded formatting. */
++void muse_text_trim_utf8(char *text)
++{
++    size_t n = strlen(text);
++    if (!n) return;
++    size_t start = n - 1;
++    while (start && ((unsigned char)text[start] & 0xc0) == 0x80) start--;
++    unsigned char lead = text[start];
++    size_t need = lead < 0x80 ? 1 : lead < 0xe0 ? 2 : lead < 0xf0 ? 3 : 4;
++    if (n - start < need) text[start] = 0;
++}
++
++int muse_text_columns(const char *text, size_t *bytes)
++{
++    char shown[4];
++    int width = muse_text_ascii(text, bytes, shown);
++    if (width >= 0) return width;
++#if CONFIG_MUSE_BOARD_FOLOTOY_AI_PASSPORT
++    int32_t cp = decode((const unsigned char *)text, bytes);
++    if ((cp >= 0x3000 && cp <= 0x303f) || (cp >= 0x4e00 && cp <= 0x9fff)
++        || (cp >= 0xff01 && cp <= 0xff60)) return 2;
++#endif
++    return 1;
++}
+diff --git a/esp32/components/muse/muse_text.h b/esp32/components/muse/muse_text.h
+index b9b3915..85d186a 100644
+--- a/esp32/components/muse/muse_text.h
++++ b/esp32/components/muse/muse_text.h
+@@ -37,6 +37,11 @@ int muse_text_ascii(const char *s, size_t *len, char out[4]);
+  * the text ends there. */
+ void muse_text_to_ascii(char *s, size_t cap);
+ 
++/* Safe end after snprintf/strlcpy; preserve all complete characters. */
++void muse_text_trim_utf8(char *text);
++/* Display width in Latin cells, with CJK occupying two on Passport. */
++int muse_text_columns(const char *text, size_t *bytes);
++
+ /* text, or if it needs stand-ins and fits in cap bytes, a copy with them in buf. */
+ const char *muse_text_showable(const char *text, char *buf, size_t cap);
+ 
 diff --git a/esp32/components/muse/muse_ui.c b/esp32/components/muse/muse_ui.c
-index 528320f..8727063 100644
+index 528320f..14c8ff2 100644
 --- a/esp32/components/muse/muse_ui.c
 +++ b/esp32/components/muse/muse_ui.c
 @@ -184,7 +184,11 @@ static const char *const MODE_NAMES[MUSE_MODE_COUNT] = {
@@ -209,7 +293,71 @@ index 528320f..8727063 100644
      s_cells = heap_caps_malloc(MUSE_PX_W * MUSE_PX_H * sizeof(uint16_t), MUSE_BIG_CAPS);
      s_cell_row = heap_caps_malloc(MUSE_PIXEL_MAX_PX * sizeof(uint16_t), MUSE_BIG_CAPS);
      if (!s_cells || !s_cell_row) {
-@@ -1493,6 +1501,9 @@ esp_err_t muse_ui_start(void)
+@@ -442,6 +450,25 @@ static void on_canvas_clicked(lv_event_t *e)
+     muse_state_make_happy();
+ }
+ 
++/* Keep Latin monospaced; Chinese glyphs live in Flash, with no font cache. */
++#if CONFIG_MUSE_BOARD_FOLOTOY_AI_PASSPORT
++#include "passport_lcd_capture.h"
++LV_FONT_DECLARE(passport_font_cjk_16);
++static const lv_font_t *passport_reply_font(void)
++{
++    static lv_font_t font;
++    static bool initialized;
++    if (!initialized) {
++        font = lv_font_unscii_16;
++        font.fallback = &passport_font_cjk_16;
++        font.line_height = passport_font_cjk_16.line_height;
++        font.base_line = passport_font_cjk_16.base_line;
++        initialized = true;
++    }
++    return &font;
++}
++#endif
++
+ static const lv_font_t *font_pick(const lv_font_t *full, const lv_font_t *compact)
+ {
+     return s_small ? compact : full;
+@@ -869,11 +896,24 @@ static void build_screen(void)
+      * these rows, so there's nowhere to put this without covering the face. */
+     lv_obj_set_flag(s_name_lbl, LV_OBJ_FLAG_HIDDEN, s_small && !s_tall && s_h < 200);
+ 
+-    s_caption_lbl = make_label(face, font_pick(&lv_font_unscii_16, &lv_font_unscii_8), COLOR_CAPTION);
++#if CONFIG_MUSE_BOARD_FOLOTOY_AI_PASSPORT
++    const lv_font_t *caption_font = passport_reply_font();
++#else
++    const lv_font_t *caption_font = font_pick(&lv_font_unscii_16, &lv_font_unscii_8);
++#endif
++    s_caption_lbl = make_label(face, caption_font, COLOR_CAPTION);
+     if (s_small) {
+         /* Two lines over the bottom of the face, on a dark band so they stay
+          * legible. A tall screen has room to keep them above the mic icon. */
+-        lv_obj_set_size(s_caption_lbl, s_w, 2 * 8 + 2 + 4);
++        lv_obj_set_size(s_caption_lbl, s_w, 2 * lv_font_get_line_height(caption_font) + 2 + 4);
++#if CONFIG_MUSE_BOARD_FOLOTOY_AI_PASSPORT
++        lv_obj_set_width(s_caption_lbl, s_w - 8);
++        muse_state_set_page((s_w - 8) / 8, 2);
++        lv_font_glyph_dsc_t glyph = {0};
++        bool cjk = lv_font_get_glyph_dsc(caption_font, &glyph, 0x4e2d, 0) && !glyph.is_placeholder;
++        ESP_LOGI(TAG, "Chinese reply font: glyph=%d line_height=%d cols=%d",
++                 cjk, lv_font_get_line_height(caption_font), (s_w - 8) / 8);
++#endif
+         lv_obj_set_style_pad_ver(s_caption_lbl, 2, 0);
+         lv_obj_set_style_text_line_space(s_caption_lbl, 2, 0);
+         lv_obj_set_style_bg_color(s_caption_lbl, lv_color_black(), 0);
+@@ -1398,7 +1438,9 @@ static volatile bool s_snapshot;
+  * LV_USE_SNAPSHOT, which devices/sdkconfig.muse-bench turns on). */
+ static void send_snapshot(void)
+ {
+-#if LV_USE_SNAPSHOT
++#if CONFIG_MUSE_BOARD_FOLOTOY_AI_PASSPORT
++    passport_lcd_capture();
++#elif LV_USE_SNAPSHOT
+     lv_draw_buf_t *buf = lv_snapshot_take(lv_screen_active(), LV_COLOR_FORMAT_RGB565);
+     if (!buf) {
+         return;
+@@ -1493,6 +1535,9 @@ esp_err_t muse_ui_start(void)
       * captions. Short landscape panels (BOX-3) need the compact layout too. */
      bool short_landscape = s_w > s_h && s_h < 320;
      s_small = s_h < 200 || s_w < 200 || short_landscape;

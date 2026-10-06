@@ -38,3 +38,7 @@ python3 -m unittest discover -s experiments/muse-passport/.work/muse-gadget-sdk/
 每次练习保留一份脱敏记录：假设、操作、期望、观察、结论、未验证项。优先补齐当前未完成的十轮按键语音操作、短／静音边界、连续十分钟联网观察、三键菜单与屏幕验收。现有两轮自动声学测试和用户 app 确认不替代这些检查。当前板级配置返回文字，不把语音播报列为已实现能力。
 
 后续改进可按“代理启动便捷性 → 配置状态提示 → 长时间内存趋势”排序；每次只改变一项，再重测注册和实际语音往返。不要把增加 TTS、OTA 或升级 IDF 混入同一轮内存修复。
+
+## 中文显示专项练习
+
+沿中文回复依次检查 UTF-8 截断、双列分页、LVGL 回退字形查找与 LCD 刷新像素。运行 `test_passport_chinese.py`，用 `generate_chinese_font.py` 复现字体，再按[字体指南](../experiments/muse-passport/overlay/esp32/components/muse/fonts/README.zh_CN.md)采集实际 LCD 像素。验收标准是中英混排在两行内清晰可读、UTF-8 边界完整、应用镜像通过分区容量校验。云端字符串正常或字形查找成功，都不能单独证明实际渲染正确。

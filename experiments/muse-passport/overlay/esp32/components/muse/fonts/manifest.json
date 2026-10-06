@@ -1,0 +1,33 @@
+{
+  "font": "Noto Sans SC Regular",
+  "license": "SIL Open Font License 1.1; see OFL.txt",
+  "source": "LVGL managed component tests/src/test_files/fonts/noto/NotoSansSC-Regular.ttf",
+  "source_sha256": "ae82f4e2a55e1316a55bcc1d05e9555ce08d8bda07e893b486896b626fd852ff",
+  "converter": "lv_font_conv@1.5.3",
+  "size_px": 16,
+  "bpp": 2,
+  "ranges": "0x3000-0x303f,0x4e00-0x9fff,0xff01-0xff60",
+  "compression": false,
+  "kerning": false,
+  "glyph_count": 21136,
+  "gb2312_han_coverage": 6763,
+  "missing_requested_codepoints": [
+    "U+9FF0",
+    "U+9FF1",
+    "U+9FF2",
+    "U+9FF3",
+    "U+9FF4",
+    "U+9FF5",
+    "U+9FF6",
+    "U+9FF7",
+    "U+9FF8",
+    "U+9FF9",
+    "U+9FFA",
+    "U+9FFB",
+    "U+9FFC",
+    "U+9FFD",
+    "U+9FFE",
+    "U+9FFF"
+  ],
+  "generated_sha256": "8271dfc58aebb2692e7b8222c945ea577b498034d60184c3170ad3a70dbb920b"
+}

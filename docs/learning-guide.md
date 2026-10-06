@@ -38,3 +38,7 @@ python3 -m unittest discover -s experiments/muse-passport/.work/muse-gadget-sdk/
 For each exercise, retain a sanitized hypothesis, operation, expectation, observation, conclusion and unverified scope. Remaining acceptance includes ten physical push-to-talk turns, short/silent boundaries, a continuous ten-minute online soak, all three keys/menu navigation and visual inspection. Two automated acoustic turns and the user's app confirmation do not replace these checks. This profile returns text; spoken replies are not implemented.
 
 Prioritize easier proxy startup, configuration visibility, then long-run memory measurements. Change one item at a time and retest registration plus a real voice round trip. Keep TTS, OTA and IDF upgrades separate from memory fixes.
+
+## Chinese display exercise
+
+Trace a Chinese reply through UTF-8 truncation, two-column pagination, LVGL fallback lookup and the LCD flush buffer. Run `test_passport_chinese.py`, reproduce the font using `generate_chinese_font.py`, then follow the [font guide](../experiments/muse-passport/overlay/esp32/components/muse/fonts/README.md) to capture real LCD pixels. Completion requires readable mixed Chinese/Latin text within two lines, complete UTF-8 boundaries and a verified application partition fit. A valid cloud string or successful glyph lookup alone does not prove correct rendering.
