@@ -2,6 +2,28 @@
 
 # Muse × AI Passport device test record
 
+## 2026-10-06: Mac proxy and microphone-to-Muse acceptance
+
+Current application SHA-256: `3b9ab20a568d8659643152a12eb31979733b392ee8ebd6e7e804687cae1d31af`. ESP-IDF 6.0.1 build and image verification passed; app-only flashing at `0x20000` passed the device hash check and preserved pairing, Wi-Fi and proxy settings.
+
+The Mac bridge listens on `0.0.0.0:18087` and forwards to the existing HTTP proxy on `127.0.0.1:1087`. The board establishes CONNECT tunnels, validates TLS certificates and receives a successful Link registration plus heartbeat. Fixes cover early paired-boot workspace reservation, bounded voice queue memory and registration-prefix corruption when service/WebSocket output buffers share storage. The actual-codec regression reproduced that corruption before the fix and passes afterward.
+
+Two acoustic tests used Mac speech through the physical board microphone, with USB simulating talk-button down/up. Muse accepted both uploads (200), delivered related user-message events and returned text after 6.66s and 13.45s. The new task “请写一份三天的机器学习计划” received a corresponding three-day plan. This profile returns text, not spoken Muse replies.
+
+The latest image also recovered automatically after the Mac proxy was stopped and restarted: Wi-Fi stayed connected, Link transitioned Offline to Online, registration and heartbeat succeeded again, and no crash was observed. A continuous ten-minute online soak and physical key/display/speaker acceptance on this image have not been performed.
+
+Host suite: 171 tests, 169 passed, two environment-dependent skips; real-crypto pairing and Noise-core/16 KiB in-place AES-GCM tests were then run separately and passed, including tampered-tag rejection. Four proxy tests and repository regression passed. Full current results and acceptance limits are in [test-evidence.json](../experiments/muse-passport/test-evidence.json); setup is in the [proxy guide](../experiments/muse-passport/proxy-guide.md).
+
+The user subsequently supplied a Muse app screenshot and explicitly confirmed receipt of both the voice message and the reply. This verifies app receipt, without inferring physical board display, key or speaker acceptance. The screenshot's collapsed Needs approval item does not identify its underlying action.
+
+Lessons: the early 502 later cleared, but that observation alone does not establish its cause. Layered diagnostics and tests isolated memory and send-pressure failures. Buffer reuse temporarily introduced registration-prefix corruption; a real-codec regression reproduced it before the fix. Future memory-layout changes must validate encoded bytes, registration ACK and a real voice reply. Keep historical failures, verified behavior and pending checks distinct; upload 200 is not task completion.
+
+Deliverables include firmware patch/overlay, Mac bridge and configuration tools, regression tests, CI, bilingual setup instructions and evidence. Credentials and binaries remain in ignored private directories. Continue with the [learning plan](learning-guide.md#learning-plan-muse-proxy-and-voice-integration).
+
+The sections below retain earlier firmware results and pending checks as historical evidence; they do not describe the current cloud connection.
+
+## Historical results
+
 2026-10-04. Physical AI Passport: ESP32-C3 rev 1.1, 8MB Flash, no PSRAM. Pinned Muse SDK `693cde9a884ad1edc87251b9f8944815f8de4809`, experimental adapter, official ESP-IDF **6.0.1**.
 
 As of 2026-10-05, **phone pairing and Wi-Fi connectivity succeeded**: live serial status reports `paired=true`, `wifi.state=connected` and RSSI −35 dBm. Muse Link remains `Connecting`; cloud and end-to-end voice acceptance are incomplete. The user reports restricted network access on the current Wi-Fi. That explanation still needs a comparison network and DNS/TLS diagnostics. Developer mode is enabled.

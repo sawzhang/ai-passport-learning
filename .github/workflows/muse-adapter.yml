@@ -15,8 +15,13 @@ jobs:
       - name: Compile and exercise ADC state machine
         run: python3 -m unittest discover -s experiments/muse-passport/overlay/esp32/tests -p test_passport_keys.py -v
       - name: Check reproduction scripts
-        run: python3 -m py_compile experiments/muse-passport/prepare.py experiments/muse-passport/build.py experiments/muse-passport/verify.py
-      - name: Prepare pinned SDK and test BLE message reassembly
+        run: python3 -m py_compile experiments/muse-passport/prepare.py experiments/muse-passport/build.py experiments/muse-passport/verify.py experiments/muse-passport/mac_proxy.py experiments/muse-passport/configure_proxy.py
+      - name: Test HTTP CONNECT and Mac proxy forwarding
+        run: python3 -m unittest discover -s experiments/muse-passport/tests -p 'test_*.py' -v
+      - name: Prepare pinned SDK and test BLE, Link memory and voice transport
         run: |
           python3 experiments/muse-passport/prepare.py
           python3 -m unittest discover -s experiments/muse-passport/.work/muse-gadget-sdk/esp32/tests -p 'test_*memory.py' -v
+          python3 -m unittest discover -s experiments/muse-passport/.work/muse-gadget-sdk/esp32/tests -p 'test_passport*.py' -v
+          python3 -m unittest discover -s experiments/muse-passport/.work/muse-gadget-sdk/esp32/tests -p 'test_link_noise_tunnel.py' -v
+          python3 -m unittest discover -s experiments/muse-passport/.work/muse-gadget-sdk/esp32/tests -p 'test_muse_chat_link_errors.py' -v

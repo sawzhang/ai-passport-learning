@@ -25,6 +25,9 @@ with os.fdopen(fd, 'w') as f:
     f.write(f'CONFIG_GADGET_SDK_TOKEN="{token}"\n')
 config.chmod(0o600)
 build = 'build-muse-folotoy-ai-passport'
+# This directory contains token-bearing configuration, binaries and debug data.
+(sdk / build).mkdir(mode=0o700, exist_ok=True)
+(sdk / build).chmod(0o700)
 # Rebuilding an existing generated config must also refresh its private token.
 generated = sdk / build / 'sdkconfig'
 if generated.exists():
@@ -34,4 +37,5 @@ if generated.exists():
     generated.chmod(0o600)
 subprocess.run(['idf.py', '-B', build, '-DIDF_TARGET=esp32c3', f'-DSDKCONFIG={build}/sdkconfig',
     '-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;devices/sdkconfig.muse;devices/sdkconfig.muse-folotoy-ai-passport;' + str(config), 'build'], cwd=sdk, check=True)
+generated.chmod(0o600)
 print('Build complete. Firmware contains your SDK token: keep binaries private.')

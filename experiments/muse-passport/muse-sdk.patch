@@ -23,7 +23,7 @@ index 56aafae..09db271 100644
 +
 +The ESP32-C3 / 8MB / no-PSRAM profile is `devices/sdkconfig.muse-folotoy-ai-passport`. Build with ESP-IDF 6.0.1 and `tools/muse/board.sh build passport`; supply your SDK token privately in the build configuration first. See [device notes](devices/README.md#experimental-folotoy-ai-passport) for limitations.
 diff --git a/esp32/components/muse/CMakeLists.txt b/esp32/components/muse/CMakeLists.txt
-index f3bec9f..9db4a6b 100644
+index f3bec9f..338e812 100644
 --- a/esp32/components/muse/CMakeLists.txt
 +++ b/esp32/components/muse/CMakeLists.txt
 @@ -62,6 +62,8 @@ if(CONFIG_MUSE_ENABLED)
@@ -40,7 +40,7 @@ index f3bec9f..9db4a6b 100644
      EMBED_FILES ${embed}
      WHOLE_ARCHIVE   # muse_lv_mem.c provides symbols only LVGL references
 -    REQUIRES esp_driver_gpio esp_driver_i2c
-+    REQUIRES esp_driver_gpio esp_driver_i2c passport_bsp
++    REQUIRES esp_driver_gpio esp_driver_i2c passport_bsp passport_proxy
      PRIV_REQUIRES ${muse_priv_requires}
  )
  
@@ -67,6 +67,121 @@ index 681e496..7146c0c 100644
          default "none"
  
      # The Muse tools' serial port: the console UART behind the board's USB
+diff --git a/esp32/components/muse/muse_chat_link.c b/esp32/components/muse/muse_chat_link.c
+index 47a51e0..260da7c 100644
+--- a/esp32/components/muse/muse_chat_link.c
++++ b/esp32/components/muse/muse_chat_link.c
+@@ -32,6 +32,7 @@
+ 
+ #include "cJSON.h"
+ #include "esp_log.h"
++#include "esp_heap_caps.h"
+ #include "esp_random.h"
+ #include "esp_timer.h"
+ #include "freertos/FreeRTOS.h"
+@@ -45,7 +46,11 @@
+ static const char *TAG = "muse_chat_link";
+ 
+ #define MIC_RATE 16000
++#if CONFIG_MUSE_BOARD_FOLOTOY_AI_PASSPORT
++#define STAGE_BYTES 768                 /* 1 KB base64, 24 ms; bounded C3 TX pressure */
++#else
+ #define STAGE_BYTES 1536                /* PCM per body chunk: 2 KB of base64, 48 ms */
++#endif
+ #define CHUNK_BYTES (STAGE_BYTES / 3 * 4)
+ #define ACK_MAX 2048
+ #define ROW_MAX 12288                   /* maximum subscription line gathered across frames */
+@@ -97,6 +102,7 @@ static QueueHandle_t s_events;
+ static row_t s_row, s_delta, s_pending[2];
+ static unsigned s_pending_count;
+ static uint64_t s_last_seq;
++static size_t s_sub_bytes, s_sub_events;
+ static bool s_early_evicted, s_skipped_big;
+ static char s_note_id[80], s_parent_id[80]; /* ACK IDs shared under s_rx_lock */
+ 
+@@ -358,6 +364,10 @@ static void text_append(char *out, size_t cap, const char *text)
+ /* Called with the receive lock held; never waits on the voice task. */
+ static void subscription_event(void)
+ {
++    if (++s_sub_events <= 16) {
++        ESP_LOGI(TAG, "subscription event: %s ready=%d text_bytes=%u related=%d",
++                 s_row.event, s_row.ready, (unsigned)strlen(s_row.text), related(&s_row));
++    }
+     if (s_row.seq && s_row.seq <= s_last_seq) return;
+     if (s_row.seq) s_last_seq = s_row.seq;
+     bool append = !strcmp(s_row.event, "delta.text_append");
+@@ -460,6 +470,7 @@ static void rx_clear(rx_t *rx)
+         s_skipped_big = false;
+         s_pending_count = 0;
+         s_last_seq = 0;
++        s_sub_bytes = s_sub_events = 0;
+         s_early_evicted = false;
+         s_note_id[0] = s_parent_id[0] = 0;
+         memset(&s_delta, 0, sizeof(s_delta));
+@@ -474,8 +485,10 @@ static void on_frame(void *ctx, int status, const uint8_t *data, size_t len, boo
+     if ((uint32_t)(token >> 1) == rx->gen && !rx->done) {
+         if (status) {
+             rx->status = status;
++            ESP_LOGI(TAG, "%s response: %d", (token & 1) ? "subscription" : "voice note", status);
+         }
+         if (!rx->cap) {
++            s_sub_bytes += len;
+             row_data(rx, data, len, end && status >= 0);
+         } else if (len && rx->len + len >= rx->cap) {
+             rx->overflow = true;
+@@ -555,7 +568,15 @@ static void end_turn(void)
+ 
+ static void fail(const char *why)
+ {
+-    ESP_LOGW(TAG, "turn failed: %s", why);
++    ESP_LOGW(TAG, "turn failed: %s (DMA free=%u largest=%u)", why,
++             (unsigned)heap_caps_get_free_size(MALLOC_CAP_DMA),
++             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_DMA));
++    xSemaphoreTake(s_rx_lock, portMAX_DELAY);
++    size_t sub_bytes = s_sub_bytes, sub_events = s_sub_events;
++    (void)sub_bytes; (void)sub_events; /* logging can be compiled out */
++    xSemaphoreGive(s_rx_lock);
++    ESP_LOGW(TAG, "subscription diagnostics: bytes=%u events=%u",
++             (unsigned)sub_bytes, (unsigned)sub_events);
+     end_turn();
+     strlcpy(s_turn.error, why, sizeof(s_turn.error));
+     emit(MUSE_HATCH_EV_ERROR, why);
+@@ -608,6 +629,7 @@ static void on_ack(void)
+     if (!related(&s_delta)) memset(&s_delta, 0, sizeof(s_delta));
+     xSemaphoreGive(s_rx_lock);
+     s_turn.phase = T_REPLY;
++    ESP_LOGI(TAG, "voice note accepted by Muse");
+     emit(MUSE_HATCH_EV_SENT, NULL);
+ }
+ 
+@@ -866,6 +888,7 @@ void muse_hatch_turn_end(void)
+     s_turn.chunk = NULL;
+     s_turn.t_end = esp_timer_get_time();
+     s_turn.phase = T_ACK;
++    ESP_LOGI(TAG, "voice upload queued; waiting for acknowledgment");
+ }
+ 
+ void muse_hatch_turn_cancel(void)
+diff --git a/esp32/components/muse/muse_input.c b/esp32/components/muse/muse_input.c
+index 67e3540..7fc5568 100644
+--- a/esp32/components/muse/muse_input.c
++++ b/esp32/components/muse/muse_input.c
+@@ -35,6 +35,7 @@
+ #include "muse_board.h"
+ #include "muse_chat.h"
+ #include "muse_console.h"
++#include "passport_proxy.h"
+ #include "muse_link.h"
+ #include "muse_mem.h"
+ #include "muse_menu.h"
+@@ -570,6 +571,7 @@ static void set_face(const char *name)
+  */
+ static bool console_command(char *line, bool whole)
+ {
++    if (whole && passport_proxy_command(line)) return true;
+     if (!strcmp(line, "status")) {
+         size_t cap = 1024;   /* long SSID, host and VM names escaped: past 512 */
+         char *json = heap_caps_malloc(cap, MUSE_BIG_CAPS);
 diff --git a/esp32/components/muse/muse_ui.c b/esp32/components/muse/muse_ui.c
 index 528320f..8727063 100644
 --- a/esp32/components/muse/muse_ui.c
@@ -105,7 +220,7 @@ index 528320f..8727063 100644
      /* Small screens keep room for the status line and button icons. A narrow
       * one is as wide as Muse gets, in whole pixels. */
 diff --git a/esp32/components/muse/muse_voice.c b/esp32/components/muse/muse_voice.c
-index d243fea..6af5089 100644
+index d243fea..d28713f 100644
 --- a/esp32/components/muse/muse_voice.c
 +++ b/esp32/components/muse/muse_voice.c
 @@ -44,7 +44,9 @@ static const char *TAG = "muse_voice";
@@ -119,6 +234,17 @@ index d243fea..6af5089 100644
  #define PRE_CHUNKS 6                                   /* 120 ms; a 320 ms upload burst stalls on the ADV */
  #else
  #define PRE_CHUNKS 16                                  /* 320 ms of audio kept from before the press */
+@@ -740,8 +742,10 @@ static bool finish_note(void)
+         return interrupted;
+     }
+ #endif
++    ESP_LOGI(TAG, "finishing voice upload");
+     muse_hatch_turn_end();   /* before the chirp, which takes ~90 ms */
+     muse_audio_chirp(0);
++    ESP_LOGI(TAG, "waiting for Muse reply");
+     return hatch_reply(&delivered);
+ }
+ 
 diff --git a/esp32/devices/AGENTS.md b/esp32/devices/AGENTS.md
 index 551e546..bfd8e86 100644
 --- a/esp32/devices/AGENTS.md
@@ -151,6 +277,28 @@ index 0c1d350..436547d 100644
 +## Experimental FoloToy AI Passport
 +
 +Use the `muse-folotoy-ai-passport` overlay and `tools/muse/board.sh build passport`. This bench profile uses the compact Muse UI, three ADC keys, ES8311 audio and CW2017 battery meter. OK is push-to-talk; UP/DOWN opens the menu, then moves the selection; OK selects; hold DOWN for 0.5 seconds to return. Without PSRAM it uses Link voice upload and text replies, with tunnel, downloaded images and OTA disabled. USB-present/charging detection is not validated: USB is reported present to disable automatic battery sleep; software power-off is unsupported. Use the physical switch. Read the external experiment report for actual test status.
+diff --git a/esp32/main/app.c b/esp32/main/app.c
+index 3f80ee0..7d5307a 100644
+--- a/esp32/main/app.c
++++ b/esp32/main/app.c
+@@ -2473,6 +2473,9 @@ void app_run(void) {
+     wifi_known_init();
+ 
+     identity_init();
++    if (!noise_ctrl_prepare_workspace(config_setup_complete() && config_is_provisioned())) {
++        ESP_LOGE(TAG, "failed to reserve Link workspace before UI startup");
++    }
+ #if CONFIG_MUSE_ENABLED
+     muse_glue_storage_ready();
+ #endif
+@@ -2622,6 +2625,7 @@ void app_run(void) {
+ #endif
+ 
+     if (!setup_complete) {
++        noise_ctrl_prepare_workspace(false);
+         // Unpaired devices advertise automatically — no button press is needed
+         // to become discoverable. Pairing enforces the configured confirmation policy.
+         open_setup_window("boot: unpaired");
 diff --git a/esp32/main/ble_server.c b/esp32/main/ble_server.c
 index 889efea..f626d80 100644
 --- a/esp32/main/ble_server.c
@@ -329,6 +477,425 @@ index 889efea..f626d80 100644
      return 0;
  }
  
+diff --git a/esp32/main/noise_control.cpp b/esp32/main/noise_control.cpp
+index a234208..bc2abd7 100644
+--- a/esp32/main/noise_control.cpp
++++ b/esp32/main/noise_control.cpp
+@@ -101,9 +101,9 @@ static char s_noise_host[256] = NOISE_DEFAULT_HOST;
+ // without PSRAM. Reserve enough inbound space for those frames.
+ #define SVC_FRAME_SCRATCH (SMALL_CONTROL_SESSION ? 17 * 1024 : 12288)
+ 
+-// The ADV cannot allocate the session with the larger inbound buffers and the
+-// usual outbound buffers together. Keep this reduction local to that board.
+-#if SMALL_CONTROL_SESSION && CONFIG_MUSE_BOARD_M5STACK_CARDPUTER_ADV
++// These no-PSRAM boards need smaller outbound chunks while retaining the
++// full inbound capacity required by 16 KB chat subscription frames.
++#if SMALL_CONTROL_SESSION && (CONFIG_MUSE_BOARD_M5STACK_CARDPUTER_ADV || CONFIG_MUSE_BOARD_FOLOTOY_AI_PASSPORT)
+ #define CARDPUTER_CONTROL_SESSION 1
+ #else
+ #define CARDPUTER_CONTROL_SESSION 0
+@@ -134,6 +134,40 @@ static char s_noise_host[256] = NOISE_DEFAULT_HOST;
+ // Inbound WebSocket frames: SVC_FRAME_SCRATCH plus framing and the AEAD tag.
+ #define WS_RX_BUF_SIZE (SMALL_CONTROL_SESSION ? 17 * 1024 : WS_BUF_SIZE)
+ 
++#if CONFIG_MUSE_BOARD_FOLOTOY_AI_PASSPORT
++// Reserve before UI/Wi-Fi fragment the heap, only on a paired boot. Unpaired
++// boots need this memory for BLE provisioning; pairing already restarts.
++struct passport_session_workspace {
++    alignas(16) uint8_t rx[WS_RX_BUF_SIZE];
++    alignas(16) uint8_t service[SVC_FRAME_SCRATCH];
++    alignas(16) uint8_t tx[WS_BUF_SIZE];
++    alignas(16) uint8_t envelope[OUT_ENV_SCRATCH];
++};
++static passport_session_workspace *s_passport_workspace;
++#define s_passport_rx (s_passport_workspace->rx)
++#define s_passport_service (s_passport_workspace->service)
++#define s_passport_tx (s_passport_workspace->tx)
++#define s_passport_envelope (s_passport_workspace->envelope)
++#endif
++
++// Boot-only: call before releasing the Muse UI task or starting Link sessions.
++extern "C" bool noise_ctrl_prepare_workspace(bool needed) {
++#if CONFIG_MUSE_BOARD_FOLOTOY_AI_PASSPORT
++    if (!needed) {
++        free(s_passport_workspace);
++        s_passport_workspace = nullptr;
++    } else if (!s_passport_workspace) {
++        s_passport_workspace = static_cast<passport_session_workspace *>(
++            heap_caps_aligned_alloc(16, sizeof(passport_session_workspace),
++                                    MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
++    }
++    return !needed || s_passport_workspace;
++#else
++    (void)needed;
++    return true;
++#endif
++}
++
+ static char s_node_id[64];
+ static char s_display_name[64];
+ static char s_wifi_ssid[33];
+@@ -810,18 +844,19 @@ static json_send_status send_json_body_chunk(esp_tls_t *tls, ClientSession &sess
+     const uint8_t *data = reinterpret_cast<const uint8_t *>(body.json)
+         + body.json_offset;
+     if (prefix_len) {
+-        // Reuse the WS output scratch for just the first chunk. StartOutbound
+-        // copies the view into svc/env scratch before flush_outbound overwrites
+-        // ws_buf. Later chunks point directly into the retained JSON buffer.
+-        static_assert(WS_BUF_SIZE >= CTRL_BODY_CHUNK_MAX,
+-                      "first chunk must fit WS scratch");
++        // Stage the first chunk in envelope scratch. Service encoding first
++        // copies it into svc_scratch, then writes the envelope. ws_buf may
++        // alias svc_scratch on Passport, so staging there corrupts the prefix.
++        // Later chunks point directly into the retained JSON buffer.
++        static_assert(OUT_ENV_SCRATCH >= CTRL_BODY_CHUNK_MAX,
++                      "first chunk must fit envelope scratch");
+         uint32_t le_len = static_cast<uint32_t>(body.json_len);
+-        ws_buf[0] = static_cast<uint8_t>(le_len & 0xff);
+-        ws_buf[1] = static_cast<uint8_t>((le_len >> 8) & 0xff);
+-        ws_buf[2] = static_cast<uint8_t>((le_len >> 16) & 0xff);
+-        ws_buf[3] = static_cast<uint8_t>((le_len >> 24) & 0xff);
+-        memcpy(ws_buf + prefix_len, data, n);
+-        data = ws_buf;
++        env_scratch[0] = static_cast<uint8_t>(le_len & 0xff);
++        env_scratch[1] = static_cast<uint8_t>((le_len >> 8) & 0xff);
++        env_scratch[2] = static_cast<uint8_t>((le_len >> 16) & 0xff);
++        env_scratch[3] = static_cast<uint8_t>((le_len >> 24) & 0xff);
++        memcpy(env_scratch + prefix_len, data, n);
++        data = env_scratch;
+     }
+ 
+     bool last = body.json_offset + n == body.json_len;
+@@ -908,7 +943,7 @@ static bool tunnel_send_body(void *vctx, const uint8_t *data, size_t len) {
+ #define REQ_MAX_HEADERS 6
+ // Body bytes queued at once. Without PSRAM a larger backlog leaves no block big
+ // enough for mbedTLS's per-write record buffer, and the session drops.
+-#define REQ_QUEUE_BYTES (SMALL_CONTROL_SESSION ? 4096 : 16384)
++#define REQ_QUEUE_BYTES (CONFIG_MUSE_BOARD_FOLOTOY_AI_PASSPORT ? 2048 : SMALL_CONTROL_SESSION ? 4096 : 16384)
+ // Largest free block a request send needs: the TLS record plus overhead.
+ #define REQ_TLS_BLOCK   (CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN + 512)
+ 
+@@ -1772,16 +1807,31 @@ static void process_inbound_body_chunk(
+                     cJSON *id = cJSON_GetObjectItem(msg, "id");
+                     if (cJSON_IsString(id) && id->valuestring
+                         && strcmp(id->valuestring, s_register_req_id) == 0) {
+-                        s_register_acked = true;
+-                        ESP_LOGI(TAG, "link.register acked; tunnel may open");
+-                        cJSON *type = cJSON_GetObjectItem(msg, "type");
+-                        cJSON *reply = cJSON_GetObjectItem(msg, "result");
+-                        cJSON *status = cJSON_GetObjectItem(reply, "status");
+-                        s_heartbeat_registered = cJSON_IsString(type)
+-                            && strcmp(type->valuestring, "res") == 0
+-                            && cJSON_IsString(status)
+-                            && strcmp(status->valuestring, "registered") == 0
+-                            && !cJSON_GetObjectItem(msg, "error");
++                        cJSON *failure = cJSON_GetObjectItem(msg, "error");
++                        if (failure && !cJSON_IsNull(failure) && !cJSON_IsFalse(failure)) {
++                            // Not registered, so the server would refuse the
++                            // tunnel and the Muse can't invoke this device.
++                            cJSON *reason = cJSON_IsObject(failure)
++                                ? cJSON_GetObjectItem(failure, "message") : failure;
++                            ESP_LOGE(TAG, "link.register rejected: %s",
++                                     cJSON_IsString(reason) && reason->valuestring
++                                         ? reason->valuestring : "no reason given");
++                        } else {
++                            s_register_acked = true;
++                            ESP_LOGI(TAG, "link.register acked; tunnel may open");
++                            cJSON *type = cJSON_GetObjectItem(msg, "type");
++                            cJSON *reply = cJSON_GetObjectItem(msg, "result");
++                            cJSON *status = cJSON_GetObjectItem(reply, "status");
++                            s_heartbeat_registered = cJSON_IsString(type)
++                                && strcmp(type->valuestring, "res") == 0
++                                && cJSON_IsString(status)
++                                && strcmp(status->valuestring, "registered") == 0
++                                && !failure;
++                            ESP_LOGI(TAG, "registration diagnostics: response=%d registered=%d error_field=%d heartbeat=%d",
++                                     cJSON_IsString(type) && strcmp(type->valuestring, "res") == 0,
++                                     cJSON_IsString(status) && strcmp(status->valuestring, "registered") == 0,
++                                     failure != nullptr, s_heartbeat_registered);
++                        }
+                     }
+                     cJSON_Delete(msg);
+                 }
+@@ -1816,6 +1866,12 @@ static void idle_wait(esp_tls_t *tls, uint64_t last_busy_us) {
+ }
+ 
+ static session_result_t run_session(stack_monitor_t *stack) {
++#if CONFIG_MUSE_BOARD_FOLOTOY_AI_PASSPORT
++    if (!s_passport_workspace) {
++        ESP_LOGE(TAG, "Link workspace was not reserved at boot");
++        return SESSION_FAILED;
++    }
++#endif
+     session_result_t result = SESSION_FAILED;
+     uint8_t *ws_buf = nullptr, *rx_buf = nullptr;
+     uint8_t *svc_scratch = nullptr, *env_scratch = nullptr;
+@@ -1861,6 +1917,23 @@ static session_result_t run_session(stack_monitor_t *stack) {
+     ClientSession session(crypto);
+ 
+     size_t ws_buf_size = WS_BUF_SIZE;
++#if CONFIG_MUSE_BOARD_FOLOTOY_AI_PASSPORT
++    // Two full-size inbound buffers still accept 16 KB chat bodies. The PSA
++    // AES-GCM backend supports exact in-place decryption, so ciphertext and
++    // transport scratch share storage. The service reassembly stays separate
++    // across fragmented frames. Storage is reserved before heap fragmentation.
++    rx_buf = s_passport_rx;
++    sr_scratch = s_passport_service;
++    tf_scratch = rx_buf;
++    ws_buf = s_passport_tx;
++    // StartOutbound copies service scratch into env_scratch before returning;
++    // only then does flush_outbound use ws_buf. Never share RX with TX: a
++    // partially received websocket frame can survive an event-loop iteration.
++    static_assert(WS_BUF_SIZE >= OUT_SVC_SCRATCH, "TX scratch must fit");
++    static_assert(WS_RX_BUF_SIZE >= SVC_FRAME_SCRATCH, "RX scratch must fit");
++    svc_scratch = ws_buf;
++    env_scratch = s_passport_envelope;
++#else
+     ws_buf = static_cast<uint8_t *>(
+         heap_caps_malloc(ws_buf_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+     if (!ws_buf) ws_buf = static_cast<uint8_t *>(malloc(ws_buf_size));
+@@ -1886,9 +1959,14 @@ static session_result_t run_session(stack_monitor_t *stack) {
+         heap_caps_malloc(SVC_FRAME_SCRATCH, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+     if (!sr_scratch) sr_scratch = static_cast<uint8_t *>(malloc(SVC_FRAME_SCRATCH));
+ 
++#endif
++
+     if (!ws_buf || !rx_buf || !svc_scratch || !env_scratch
+         || !tf_scratch || !sr_scratch) {
+-        ESP_LOGE(TAG, "session buffer alloc failed");
++        ESP_LOGE(TAG, "session buffer alloc failed: free=%u largest=%u buffers=%d%d%d%d%d%d",
++                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT),
++                 (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
++                 !!ws_buf, !!rx_buf, !!svc_scratch, !!env_scratch, !!tf_scratch, !!sr_scratch);
+         goto cleanup;
+     }
+ 
+@@ -2240,13 +2318,20 @@ static session_result_t run_session(stack_monitor_t *stack) {
+ 
+ cleanup:
+     clear_pending_json_body(control_tx);
+-    free(ws_buf);
+     free(identity.body);
++#if CONFIG_MUSE_BOARD_FOLOTOY_AI_PASSPORT
++    memset(s_passport_rx, 0, sizeof(s_passport_rx));
++    memset(s_passport_service, 0, sizeof(s_passport_service));
++    memset(s_passport_tx, 0, sizeof(s_passport_tx));
++    memset(s_passport_envelope, 0, sizeof(s_passport_envelope));
++#else
++    free(ws_buf);
+     free(rx_buf);
+     free(svc_scratch);
+     free(env_scratch);
+     free(tf_scratch);
+     free(sr_scratch);
++#endif
+     esp_tls_conn_destroy(tls);
+     return result;
+ }
+@@ -2435,20 +2520,21 @@ extern "C" int64_t noise_ctrl_req_open(const char *verb, const char *path,
+ extern "C" bool noise_ctrl_req_send(int64_t id, const void *data, size_t len,
+                                     bool end_body, int wait_ms) {
+     if (!s_req_q || id < REQ_STREAM_BASE) return false;
+-    uint8_t *copy = static_cast<uint8_t *>(malloc(len ? len : 1));
+-    if (!copy) return false;
+-    if (len) memcpy(copy, data, len);
+-    req_op op = {req_op_kind::Body, end_body, id, copy, len, nullptr, nullptr};
+     int64_t deadline = esp_timer_get_time() + (int64_t)wait_ms * 1000;
+     while (s_req_queued_bytes > 0
+            && s_req_queued_bytes + (int32_t)len > REQ_QUEUE_BYTES) {
+         int64_t left = deadline - esp_timer_get_time();
+         if (left <= 0) {
+-            free(copy);
+             return false;
+         }
+         vTaskDelay(pdMS_TO_TICKS(5) ? pdMS_TO_TICKS(5) : 1);
+     }
++    // Do not hold an unqueued payload while waiting: the sender needs that
++    // memory for TLS to drain the queue in the first place.
++    uint8_t *copy = static_cast<uint8_t *>(malloc(len ? len : 1));
++    if (!copy) return false;
++    if (len) memcpy(copy, data, len);
++    req_op op = {req_op_kind::Body, end_body, id, copy, len, nullptr, nullptr};
+     int64_t left = deadline - esp_timer_get_time();
+     if (!req_put(op, left > 0 ? pdMS_TO_TICKS(left / 1000) : 0)) {
+         free(copy);
+diff --git a/esp32/main/noise_control.h b/esp32/main/noise_control.h
+index 3f3a2de..927a09e 100644
+--- a/esp32/main/noise_control.h
++++ b/esp32/main/noise_control.h
+@@ -56,6 +56,9 @@ typedef cJSON *(*noise_ctrl_command_cb)(const char *command, cJSON *params,
+                                        const char *request_id,
+                                        noise_ctrl_session_generation_t session_generation);
+ 
++// Boot-only workspace reservation; call before starting UI/network tasks.
++bool noise_ctrl_prepare_workspace(bool needed);
++
+ void noise_ctrl_init(const char *node_id, const char *display_name,
+                      noise_ctrl_status_cb on_status);
+ 
+diff --git a/esp32/main/noise_tunnel.cpp b/esp32/main/noise_tunnel.cpp
+index fd3cabf..c84380b 100644
+--- a/esp32/main/noise_tunnel.cpp
++++ b/esp32/main/noise_tunnel.cpp
+@@ -37,7 +37,15 @@ static const char *TAG = "link.noise_tun";
+ // MTU-sized buffers) for the chunk plus concurrent WiFi/lwIP churn. Keep this
+ // at the result-queue boundary, before every control chunk, tunnel batch and
+ // ping. It is not a contiguous-allocation requirement or a reservation.
++#if CONFIG_MUSE_BOARD_FOLOTOY_AI_PASSPORT && !CONFIG_HOMEHUB_TUNNEL
++// Passport has no 8 KB tunnel batches: voice chunks are 1 KB, control chunks
++// at most 2 KB, and TLS output is 2 KB. Keep 8 KB for that record, AES context/
++// descriptors and concurrent Wi-Fi packets. Retain the separate 2 KB block
++// floor below; the voice sender also checks TLS's contiguous allocation size.
++static constexpr size_t NOISE_TX_DMA_RESERVE_BYTES = 8 * 1024;
++#else
+ static constexpr size_t NOISE_TX_DMA_RESERVE_BYTES = 16 * 1024;
++#endif
+ 
+ // LARGEST free DMA block is a separate, much smaller allocation floor. C5 AES
+ // allocates heap_caps_aligned_calloc(8, n * 2, sizeof(crypto_dma_desc_t), DMA):
+diff --git a/esp32/tests/link_fakes/cJSON.c b/esp32/tests/link_fakes/cJSON.c
+index 13563fa..99e27ba 100644
+--- a/esp32/tests/link_fakes/cJSON.c
++++ b/esp32/tests/link_fakes/cJSON.c
+@@ -430,6 +430,14 @@ int cJSON_IsArray(const cJSON *item) {
+     return item && item->type == cJSON_Array;
+ }
+ 
++int cJSON_IsFalse(const cJSON *item) {
++    return item && item->type == cJSON_False;
++}
++
++int cJSON_IsNull(const cJSON *item) {
++    return item && item->type == cJSON_NULL;
++}
++
+ int cJSON_IsObject(const cJSON *item) {
+     return item && item->type == cJSON_Object;
+ }
+diff --git a/esp32/tests/link_fakes/cJSON.h b/esp32/tests/link_fakes/cJSON.h
+index b0dde09..a45064f 100644
+--- a/esp32/tests/link_fakes/cJSON.h
++++ b/esp32/tests/link_fakes/cJSON.h
+@@ -57,6 +57,8 @@ int cJSON_PrintPreallocated(cJSON *item, char *buffer, const int length, const i
+ void cJSON_free(void *object);
+ 
+ int cJSON_IsArray(const cJSON *item);
++int cJSON_IsFalse(const cJSON *item);
++int cJSON_IsNull(const cJSON *item);
+ int cJSON_IsObject(const cJSON *item);
+ int cJSON_IsString(const cJSON *item);
+ int cJSON_IsTrue(const cJSON *item);
+diff --git a/esp32/tests/link_noise_tunnel_harness.cpp b/esp32/tests/link_noise_tunnel_harness.cpp
+index 7e01ca9..3387b3a 100644
+--- a/esp32/tests/link_noise_tunnel_harness.cpp
++++ b/esp32/tests/link_noise_tunnel_harness.cpp
+@@ -289,7 +289,7 @@ static std::string payload(size_t len) {
+     for (size_t i = 0; i < len; ++i) json[i] = '!' + (i * 37 + i / 97) % 90;
+     return json;
+ }
+-static void test_control_stream() {
++static void test_control_stream(bool shared = false) {
+     // Empty, prefix boundary, exact chunks, today's and future discovery sizes.
+     for (size_t len : {0u, 1u, 8187u, 8188u, 8189u, 8192u, 16380u,
+                        16384u, 30000u, 256u * 1024u}) {
+@@ -301,7 +301,7 @@ static void test_control_stream() {
+             unsigned turns = 0;
+             while (true) {
+                 auto status = send_json_body_chunk(nullptr, *noise_session, control_tx,
+-                    svc_scratch, env_scratch, ws_buf, end_body);
++                    shared ? ws_buf : svc_scratch, env_scratch, ws_buf, end_body);
+                 ++turns;
+                 assert(status != json_send_status::Failed);
+                 assert(!noise_session->HasOutboundWebSocketPayload());
+@@ -554,6 +554,35 @@ static void test_heartbeat() {
+         assert(!control_tx_turn());
+         assert(control_bytes.empty() && !control_tx.json && !heartbeat_sent);
+     }
++    // A rejected registration isn't acked, so the tunnel doesn't open, and the
++    // reason is logged. A later success for the same request still counts.
++    for (const auto &[reply, reason] : std::vector<std::pair<const char *, const char *>>{
++            {R"({"id":"register-id","type":"res","result":{"status":"registered"},"error":"denied"})",
++             "link.register rejected: denied"},
++            {R"({"id":"register-id","type":"res","error":{"code":"invalid","message":"too many commands"}})",
++             "link.register rejected: too many commands"},
++            {R"({"id":"register-id","type":"res","error":{"code":"invalid"}})",
++             "link.register rejected: no reason given"}}) {
++        reset_control();
++        strcpy(s_register_req_id, "register-id");
++        logs.clear();
++        receive(reply);
++        assert(!s_register_acked && !s_heartbeat_registered);
++        assert(std::find(logs.begin(), logs.end(), reason) != logs.end());
++        receive(registered);
++        assert(s_register_acked && s_heartbeat_registered);
++    }
++    // "error": null or false is no error: acked, though not a heartbeat
++    // registration.
++    for (const char *reply : {
++            R"({"id":"register-id","type":"res","result":{"status":"registered"},"error":null})",
++            R"({"id":"register-id","type":"res","result":{"status":"registered"},"error":false})"}) {
++        reset_control();
++        strcpy(s_register_req_id, "register-id");
++        receive(reply);
++        assert(s_register_acked && !s_heartbeat_registered);
++    }
++
+     // An unrelated reply doesn't consume registration; a reconnect needs a new ACK.
+     for (int connection = 0; connection < 2; ++connection) {
+         reset_control();
+@@ -650,6 +679,7 @@ int main(int argc, char **argv) {
+     if (strcmp(argv[1], "tunnel") != 0) {
+         if (strcmp(argv[1], "heartbeat") == 0) test_heartbeat();
+         else if (strcmp(argv[1], "stream") == 0) test_control_stream();
++        else if (strcmp(argv[1], "shared_stream") == 0) test_control_stream(true);
+         else if (strcmp(argv[1], "pressure") == 0) test_control_pressure();
+         else if (strcmp(argv[1], "fragmentation") == 0) test_sustained_fragmentation();
+         else if (strcmp(argv[1], "burst") == 0) test_control_burst_pressure();
+diff --git a/esp32/tests/noise_core_harness.cpp b/esp32/tests/noise_core_harness.cpp
+index b337f57..2ca4659 100644
+--- a/esp32/tests/noise_core_harness.cpp
++++ b/esp32/tests/noise_core_harness.cpp
+@@ -85,7 +85,7 @@ int CheckLargeExactInPlaceAesGcm(tn::PsaCryptoBackend& backend) {
+     nonce[i] = static_cast<uint8_t>(0x50 + i);
+   }
+ 
+-  std::vector<uint8_t> plaintext(8u * 1024u);
++  std::vector<uint8_t> plaintext(16u * 1024u);
+   for (size_t i = 0; i < plaintext.size(); ++i) {
+     plaintext[i] = static_cast<uint8_t>((i * 31u) & 0xffu);
+   }
+@@ -104,20 +104,28 @@ int CheckLargeExactInPlaceAesGcm(tn::PsaCryptoBackend& backend) {
+     return 13;
+   }
+ 
+-  std::vector<uint8_t> opened(plaintext.size());
+   if (!backend
+            .Aes256GcmOpen(
+                tn::ConstByteSpan(key),
+                tn::ConstByteSpan(nonce),
+                tn::ConstByteSpan(),
+                tn::ConstByteSpan(buffer.data(), buffer.size()),
+-               tn::ByteSpan(opened.data(), opened.size()))
++               tn::ByteSpan(buffer.data(), plaintext.size()))
+            .ok()) {
+     return 14;
+   }
+-  if (opened != plaintext) {
++  if (!std::equal(plaintext.begin(), plaintext.end(), buffer.begin())) {
+     return 15;
+   }
++  // Exact in-place decrypt must still reject altered authentication tags.
++  if (!backend.Aes256GcmSeal(tn::ConstByteSpan(key), tn::ConstByteSpan(nonce),
++      tn::ConstByteSpan(), tn::ConstByteSpan(plaintext.data(), plaintext.size()),
++      tn::ByteSpan(buffer.data(), buffer.size())).ok()) return 16;
++  buffer.back() ^= 1;
++  if (backend.Aes256GcmOpen(tn::ConstByteSpan(key), tn::ConstByteSpan(nonce),
++      tn::ConstByteSpan(), tn::ConstByteSpan(buffer.data(), buffer.size()),
++      tn::ByteSpan(buffer.data(), plaintext.size())).ok()) return 17;
++  for (size_t i = 0; i < plaintext.size(); ++i) if (buffer[i]) return 18;
+   return 0;
+ }
+ 
 diff --git a/esp32/tests/test_link_encrypted_pairing_contract.py b/esp32/tests/test_link_encrypted_pairing_contract.py
 index ffb7917..cb5514f 100644
 --- a/esp32/tests/test_link_encrypted_pairing_contract.py
@@ -359,6 +926,49 @@ index ffb7917..cb5514f 100644
  
      def test_decrypted_setup_actions_require_confirmed_session(self) -> None:
          source = BLE_SERVER_C.read_text()
+diff --git a/esp32/tests/test_link_noise_tunnel.py b/esp32/tests/test_link_noise_tunnel.py
+index 2c732d0..99e671a 100644
+--- a/esp32/tests/test_link_noise_tunnel.py
++++ b/esp32/tests/test_link_noise_tunnel.py
+@@ -73,7 +73,7 @@ class LinkNoiseTunnelTest(unittest.TestCase):
+             constants += "\n" + control[ws_start:ws_end]
+             (out / "control_sender.inc").write_text(constants + "\n" + control[start:end])
+             start = control.index("cleanup:\n") + len("cleanup:\n")
+-            end = control.index("    free(ws_buf);", start)
++            end = control.index("    free(identity.body);", start)
+             (out / "control_cleanup.inc").write_text(control[start:end])
+             start = control.index("    // Drain any stale results from previous sessions")
+             end = control.index("    // 5. Queue link.register", start)
+@@ -120,6 +120,9 @@ class LinkNoiseTunnelTest(unittest.TestCase):
+     def test_control_prefix_stream_and_no_whole_payload_copy(self):
+         self.run_harness("stream")
+ 
++    def test_shared_service_and_websocket_buffer_preserves_registration(self):
++        self.run_harness("shared_stream")
++
+     def test_control_contiguous_pressure_pause_resume_and_keepalives(self):
+         for case in ("pressure", "heartbeat"):
+             with self.subTest(case=case):
+diff --git a/esp32/tests/test_muse_chat_link_errors.py b/esp32/tests/test_muse_chat_link_errors.py
+index 1769522..6b43305 100644
+--- a/esp32/tests/test_muse_chat_link_errors.py
++++ b/esp32/tests/test_muse_chat_link_errors.py
+@@ -292,6 +292,7 @@ int main(int argc,char **argv) {
+         cjson = ROOT / 'managed_components/espressif__cjson/cJSON'
+         compiled = subprocess.run([
+             os.environ.get('CC', 'cc'), '-std=gnu11', '-Wall', '-Wextra', '-Werror',
++            '-DCONFIG_MUSE_BOARD_FOLOTOY_AI_PASSPORT=' + str(getattr(cls, 'passport', 0)),
+             '-I', str(cjson), '-I', str(ROOT / 'tests'), '-I', str(ROOT / 'components/muse'),
+             str(c), str(cjson / 'cJSON.c'), '-o', str(cls.binary)
+         ], capture_output=True, text=True)
+@@ -328,3 +329,7 @@ int main(int argc,char **argv) {
+ 
+     def test_transcript_and_multiple_complete_lines_need_no_receive_allocation(self):
+         self.run_case(7)
++
++
++class PassportChatLinkErrors(ChatLinkErrors):
++    passport = 1
 diff --git a/esp32/tools/muse/avatar.py b/esp32/tools/muse/avatar.py
 index e943eb2..a2d5a8d 100644
 --- a/esp32/tools/muse/avatar.py

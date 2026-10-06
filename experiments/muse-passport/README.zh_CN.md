@@ -4,7 +4,7 @@
 
 本项目为 FoloToy AI Passport 增加实验性 Muse SDK 板级适配：ESP32-C3、8MB Flash、无 PSRAM、240×320 ST7789、ADC 三键、ES8311 麦克风/扬声器、CW2017 电量计。它不是 Muse 官方支持的硬件。
 
-最新进展（2026-10-05）：手机配对与 Wi-Fi 已成功；Muse 云端仍为 `Connecting`。用户反馈当前网络无法访问 Muse，需换可达网络对照验证。端到端语音及联网稳定性尚未验收。
+最新进展（2026-10-06）：Wi-Fi、Mac HTTP 代理、Muse Link 注册和两轮真实麦克风输入／文字回答已通过，见[当前测试证据](test-evidence.json)。物理按键、屏幕观感和扬声器听感仍需独立验收。
 
 固定 SDK 版本、构建及真机测试结果见 [测试报告](../../docs/muse-device-test.zh_CN.md)。游戏恢复文件留在设备开发目录的私有构建归档，重新构建游戏也可恢复；切换固件会改变分区和设置。
 
@@ -28,3 +28,5 @@
 ## 许可与凭据
 
 原创适配、脚本和文档为 MIT；复制的 BSP 保留 FoloToy MIT。上游代码修改遵循 Apache-2.0，见 `NOTICE`。上游默认头像有单独许可，本项目不分发头像、私钥、SDK token 或生成固件。Muse 服务权限另受 SDK 服务条款约束。
+
+[Mac HTTP 代理配置](proxy-guide.zh_CN.md)

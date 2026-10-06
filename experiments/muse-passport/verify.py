@@ -6,12 +6,20 @@ import importlib.util
 import json
 from pathlib import Path
 import sys
+import subprocess
 
 root = Path(__file__).resolve().parent
 parser = argparse.ArgumentParser()
 parser.add_argument('--build', type=Path, default=root / '.work/muse-gadget-sdk/esp32/build-muse-folotoy-ai-passport')
+parser.add_argument('--require-proxy', action='store_true', help='Also require proxy entry points in the linked ELF')
 args = parser.parse_args()
 build = args.build.resolve()
+if args.require_proxy:
+    symbols = subprocess.check_output(['riscv32-esp-elf-nm', '--defined-only', str(build / 'muse-gadget.elf')], text=True)
+    names = {line.split()[-1] for line in symbols.splitlines() if line.split()}
+    required_symbols = {'__wrap_esp_tls_conn_new_sync', '__wrap_esp_tls_conn_new_async', 'passport_proxy_command'}
+    if not required_symbols <= names:
+        raise SystemExit('Proxy integration is missing from linked firmware.')
 source = root.parents[1] / 'firmware/tools/verify_firmware.py'
 spec = importlib.util.spec_from_file_location('passport_image_verifier', source)
 module = importlib.util.module_from_spec(spec)

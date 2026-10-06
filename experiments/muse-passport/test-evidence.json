@@ -36,8 +36,106 @@
     "phone_retest": "Pairing and Wi-Fi connected confirmed by live status; cloud Connecting",
     "previous_retest": "provision_v2 received; error_operation_in_progress before Wi-Fi association"
   },
-  "capture_scope": "Historical unpaired 600-second run; see latest_status for subsequent live evidence",
+  "capture_scope": "Historical unpaired 600-second run at top level; latest_status contains current paired proxy and voice acceptance evidence.",
   "latest_status": {
+    "date": "2026-10-06",
+    "source": "USB serial status, actual microphone recordings and Muse subscription events",
+    "application_sha256": "3b9ab20a568d8659643152a12eb31979733b392ee8ebd6e7e804687cae1d31af",
+    "build": {
+      "idf": "6.0.1",
+      "target": "esp32c3",
+      "flash_bytes": 8388608,
+      "application_bytes": 2232320,
+      "app_only_flash_offset": "0x20000",
+      "flash_hash_verified": true,
+      "proxy_elf_verification": "passed"
+    },
+    "host_tests": {
+      "sdk_suite_total": 171,
+      "sdk_suite_passed": 169,
+      "sdk_suite_skipped": 2,
+      "supplemental_real_crypto_pairing": "passed, both attestation modes",
+      "supplemental_noise_core": "passed, 16 KiB in-place AES-GCM and tampered-tag rejection",
+      "proxy_tests": 4,
+      "proxy_result": "passed",
+      "repository_regression": "passed",
+      "patch_applies_to_pinned_sdk": true,
+      "registration_buffer_regression": "failed before fix; passed after fix using actual codec and shared output buffer"
+    },
+    "wifi": {
+      "state": "connected",
+      "credentials_persisted": true
+    },
+    "proxy": {
+      "mac_listen": "0.0.0.0:18087",
+      "upstream": "127.0.0.1:1087",
+      "device_endpoint_persisted": true,
+      "connect_and_tls_certificate_validation": "passed",
+      "latest_image_reconnect": {
+        "result": "passed",
+        "outage_capture_seconds": 20,
+        "recovery_capture_seconds": 45,
+        "wifi_during_outage": "connected",
+        "link_during_outage": "Offline",
+        "final_state": "Online",
+        "registration_acknowledged": true,
+        "heartbeat_sent": true,
+        "crashes": 0
+      }
+    },
+    "link": {
+      "paired": true,
+      "state": "Online",
+      "registration_acknowledged": true,
+      "registration_response": "registered",
+      "heartbeat_sent": true
+    },
+    "voice_end_to_end": {
+      "result": "passed for microphone input and text response",
+      "trigger": "USB console emulates talk-button down/up; Mac speaker plays Chinese speech into physical board microphone",
+      "runs": [
+        {
+          "request": "请写三条人工智能学习建议。",
+          "recording_seconds": 4.12,
+          "clipped_samples": 0,
+          "upload_status": 200,
+          "related_user_event": true,
+          "reply_seconds_after_upload_end": 6.66,
+          "reply": "Muse recognized the repeated request and referred to its previous three suggestions"
+        },
+        {
+          "request": "请写一份三天的机器学习计划。",
+          "recording_seconds": 4.26,
+          "clipped_samples": 0,
+          "upload_status": 200,
+          "related_user_event": true,
+          "reply_seconds_after_upload_end": 13.45,
+          "reply_excerpt": "好，给你一份三天的机器学习入门计划"
+        }
+      ]
+    },
+    "limitations": [
+      "Current no-PSRAM Muse Link backend returns text; spoken reply playback is not supported.",
+      "Physical talk-button actuation and visual display inspection not verified; console simulated the button.",
+      "Fresh phone/BLE pairing was not repeated because existing pairing was preserved; host pairing and workspace lifecycle tests passed.",
+      "Mac proxy must remain running and reachable on the same LAN."
+    ],
+    "device_tests": {
+      "reboot_preserved_pairing_wifi_proxy": true,
+      "microphone_requests_with_text_replies": 2,
+      "latest_image_proxy_outage_recovery": "passed",
+      "unexpected_panic_or_heap_corruption_observed": false,
+      "continuous_10_minute_online_soak_on_latest_image": "not performed; historical 600s run was unpaired"
+    },
+    "user_confirmation": {
+      "date": "2026-10-06",
+      "source": "User messages after screenshot",
+      "muse_app_received_voice": true,
+      "muse_app_received_reply": true,
+      "scope": "App receipt confirmed; physical board display, keys and speaker acceptance not inferred."
+    }
+  },
+  "historical_latest_status": {
     "date": "2026-10-05",
     "source": "live serial >status without reset",
     "application_sha256": "52fef5412c720b4a8276865690831493b3c993a8536d5d9644e37415e175f80d",

@@ -4,7 +4,7 @@
 
 Experimental board adapter for FoloToy AI Passport: ESP32-C3, 8MB Flash, no PSRAM, 240×320 ST7789, three ADC keys, ES8311 audio and CW2017 battery meter. This is not officially supported Muse hardware. See the [test report](../../docs/muse-device-test.md) for measured results and pending acceptance checks.
 
-Latest status (2026-10-05): phone pairing and Wi-Fi succeeded; Muse cloud remains `Connecting`. The user reports restricted access on the current network; an alternative-network comparison is pending. End-to-end voice and online stability remain unvalidated.
+Latest status (2026-10-06): paired Wi-Fi, Mac HTTP proxy, Muse Link registration and two physical-microphone requests with text replies passed. See [current evidence](test-evidence.json). Physical keys, display appearance and audible playback still need separate acceptance.
 
 ## Reproduce
 
@@ -26,3 +26,5 @@ The prior games image remains in the private device-development archive; it can 
 ## Licensing
 
 Original adapter, scripts and docs are MIT; copied BSP retains FoloToy MIT. The SDK patch modifies Apache-2.0 sources. See NOTICE. The upstream avatar has separate terms and is not distributed here. Tokens, signing keys, firmware and private logs are excluded. Muse service access has separate SDK terms.
+
+[Mac HTTP proxy configuration](proxy-guide.md)
