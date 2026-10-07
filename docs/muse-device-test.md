@@ -2,6 +2,12 @@
 
 # Muse × AI Passport device test record
 
+## 2026-10-07: supervised Mac proxy
+
+The temporary 18087 bridge was absent while Wi-Fi and the upstream 1087 proxy remained available. Restoring it and resetting the device restored Link. The original process exit cause was not established.
+
+The bridge now isolates connection failures, bounds cleanup and uses bidirectional idle tracking. A user LaunchAgent starts at login and restarts exited processes with a 10-second throttle; runtime code lives outside the checkout, and metadata logs rotate at 1 MiB with three backups. Eight host tests passed, including upstream outage/recovery and one-way activity. A SIGKILL fault injection replaced PID 96637 with 96689 and restored `0.0.0.0:18087`; three subsequent device status reads were Online. A subsequent physical microphone upload returned 200 and a cloud reply after 9.48 seconds, confirming traffic through the recovered bridge. Muse reported an unclear transcript, so speech recognition accuracy did not pass this round. No firmware was rebuilt or flashed. Sleep, logout, unavailable upstream and a missing Python runtime remain outside this recovery guarantee.
+
 ## 2026-10-06: Chinese reply rendering fix
 
 The user reported unreadable Chinese on the board. The original reply label used Unscii without Chinese glyphs, counted Han characters as one Latin column and reserved compact caption height for an 8-pixel font. Replies/transcripts now use Noto Sans SC 16 px as a fallback to the monospaced Latin font, two-column CJK pagination and sufficient line height. Bounded formatting and transcript tails trim incomplete trailing UTF-8 characters.

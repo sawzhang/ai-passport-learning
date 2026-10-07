@@ -89,6 +89,44 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
             relay.close(); remote.close()
             await relay.wait_closed(); await remote.wait_closed()
 
+    async def test_upstream_outage_then_recovery(self):
+        remote = await asyncio.start_server(lambda r, w: None, '127.0.0.1', 0)
+        port = remote.sockets[0].getsockname()[1]
+        remote.close(); await remote.wait_closed()
+        slots = asyncio.Semaphore(1)
+        relay = await asyncio.start_server(
+            lambda r, w: bridge.bridge(r, w, '127.0.0.1', port, [], slots), '127.0.0.1', 0)
+        async def respond(r, w):
+            w.write(b'recovered'); await w.drain(); w.close(); await w.wait_closed()
+        try:
+            r, w = await asyncio.open_connection('127.0.0.1', relay.sockets[0].getsockname()[1])
+            self.assertEqual(await asyncio.wait_for(r.read(), 2), b'')
+            w.close(); await w.wait_closed()
+            remote = await asyncio.start_server(respond, '127.0.0.1', port)
+            r, w = await asyncio.open_connection('127.0.0.1', relay.sockets[0].getsockname()[1])
+            self.assertEqual(await asyncio.wait_for(r.read(), 2), b'recovered')
+            w.close(); await w.wait_closed()
+        finally:
+            relay.close(); remote.close()
+            await relay.wait_closed(); await remote.wait_closed()
+
+    async def test_one_way_activity_keeps_tunnel_alive(self):
+        async def upstream(r, w):
+            for _ in range(8):
+                w.write(b'x'); await w.drain(); await asyncio.sleep(.04)
+            w.close(); await w.wait_closed()
+        remote = await asyncio.start_server(upstream, '127.0.0.1', 0)
+        relay = await asyncio.start_server(lambda r, w: bridge.bridge(
+            r, w, '127.0.0.1', remote.sockets[0].getsockname()[1], [], asyncio.Semaphore(1),
+            idle_timeout=.15), '127.0.0.1', 0)
+        try:
+            r, w = await asyncio.open_connection('127.0.0.1', relay.sockets[0].getsockname()[1])
+            self.assertEqual(await asyncio.wait_for(r.read(), 2), b'x'*8)
+            w.close(); await w.wait_closed()
+        finally:
+            relay.close(); remote.close()
+            await relay.wait_closed(); await remote.wait_closed()
+
     async def test_disallowed_client(self):
         relay = await asyncio.start_server(
             lambda r, w: bridge.bridge(r, w, '127.0.0.1', 1, ['192.168.1.5'], asyncio.Semaphore(16)),

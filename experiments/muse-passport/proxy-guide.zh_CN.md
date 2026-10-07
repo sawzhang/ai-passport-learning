@@ -24,7 +24,7 @@ python3 experiments/muse-passport/mac_proxy.py --listen 0.0.0.0 --port 18087
 使用 Muse 时保持进程运行。脚本把字节转发到现有的 `127.0.0.1:1087` HTTP 代理，
 不解密 TLS。默认接受私有地址和回环地址的客户端；可用
 `--allow-client DEVICE_IP` 限制为指定设备。如 macOS 提示防火墙权限，请允许入站
-连接。脚本不修改原代理应用，也不设置开机自启。
+连接。前台命令不修改原代理应用；长期使用请安装下文的常驻服务。
 
 `0.0.0.0` 是监听地址，设备需要填写 Mac 的实际局域网 IPv4 地址，不能填写
 `0.0.0.0` 或 `127.0.0.1`。通常可用 `ipconfig getifaddr en0` 查询，需确认活动
@@ -90,3 +90,18 @@ TLS 发送记录限制为 2 KiB，接收仍支持 16 KiB。此无隧道配置的
 检查。语音使用 1 KiB base64 数据块和 2 KiB 队列，等队列可接收后才分配数据副本。
 调整这些尺寸后必须验证 Link 注册和实际语音上传；单独建立 TLS 连接不能验证
 完整会话所需的内存。
+
+## macOS 常驻服务
+
+```sh
+python3 experiments/muse-passport/mac_proxy_service.py install
+python3 experiments/muse-passport/mac_proxy_service.py status
+# 停止自动拉起并移除登录启动：
+python3 experiments/muse-passport/mac_proxy_service.py uninstall
+```
+
+用户级 `com.musepassport.proxy` LaunchAgent 在登录时启动，进程退出后自动拉起，重启间隔至少 10 秒。安装前先停止占用 18087 的临时代理。程序复制到 `~/Library/Application Support/MusePassportProxy`，关闭终端或项目不会停止服务；修改代码后重新运行 install 部署新副本。安装时使用的 Python 路径必须持续有效。
+
+日志位于 `~/Library/Logs/MusePassportProxy/proxy.log`，单文件最多 1 MiB，另保留 3 个备份，只记录运行事件，不记录隧道内容或 token。连接异常彼此隔离，清理操作有超时；只有双向都没有流量达 300 秒才判为空闲。上游中断会关闭受影响连接，上游恢复后新连接可继续使用；被终止进程的既有 TCP 连接无法保留。
+
+此服务不负责启动上游代理，也不阻止 Mac 休眠，不能保证设备在长时间断网后自动重连。除了 launchd PID，还要检查 1087、Mac 局域网地址及 Link 注册。用户注销期间服务不可用。卸载保留程序副本和日志，便于诊断。
