@@ -2,6 +2,16 @@
 
 # Muse × AI Passport device test record
 
+## 2026-10-24: LAN recovery with TUN unchanged
+
+The ESP32 reached its gateway TCP port in 6–11 ms but timed out before TCP connected to the Mac. Reverse ping/TCP also timed out. An alternate port and an interface-bound listener did not recover it. Reassociating the Mac Wi-Fi restored bidirectional reachability and established ESP32 connections to 18087, with the same IP addresses and unchanged TUN configuration hash. This supports a Wi-Fi/AP session-path problem; the exact side and original trigger are unproven. Temporary port and route experiments were removed, original DHCP/proxy settings restored, and no pairing data was erased.
+
+Recovery testing exposed a second issue: after the gateway rejected WebSocket upgrades, allocating a new 8 KiB credential-refresh task failed on the no-PSRAM board. Passport now queues that work on the existing main task, stops the failed session before the API fetch, and skips stale refreshes if already connected. UI boot finishes before networking, avoiding competing startup allocations. The Noise task uses 8 KiB on Passport instead of 12 KiB, based on measured unused stack; other boards retain their setting. In the final TLS/retry runs, Noise retained at least 4,112 bytes and main at least 2,128 bytes. Guards remain enabled. USB `proxy.test` adds an explicit bounded diagnostic worker, not a background task.
+
+Build: PASS; app SHA-256 `86eb9659d50081ef3670d6c71d892982e3826ceff3457fa72cd0fc0752875a67`, 3,805,184 bytes, application-only flash verified. Host tests: PASS, 175 SDK tests (173 passed, two environment skips), eight adapter tests and repository tests. Device tests: LAN, CONNECT, TLS, fresh API credentials and launchd SIGKILL recovery PASS; final observed retry windows contain no allocation failure, panic or stack fault. No TUN setting was changed.
+
+Cloud acceptance: BLOCKED. Multiple WebSocket upgrades returned HTTP 502 after valid TLS and successful API refreshes. A separate host request to the same VM route reproduced 502 and Meta's generic error page; official current request format matches the pinned implementation. Link registration and end-to-end voice/Chinese-reply acceptance did not pass this run. Do not interpret the recovered Mac connection as full Muse service recovery. Physical key/display acceptance and long online soak remain unverified while Link is Offline.
+
 ## 2026-10-07: supervised Mac proxy
 
 The temporary 18087 bridge was absent while Wi-Fi and the upstream 1087 proxy remained available. Restoring it and resetting the device restored Link. The original process exit cause was not established.

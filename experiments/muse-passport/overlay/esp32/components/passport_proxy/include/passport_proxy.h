@@ -4,7 +4,8 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-/* USB console commands: proxy=IPv4:port, proxy=off, proxy.status.
+/* USB console commands: proxy=IPv4:port, proxy=off, proxy.status, proxy.test.
+ * proxy.test runs an explicit, bounded worker (no automatic background probes).
  * Changes persist in a separate NVS namespace and apply to new connections.
  * Reboot after configuration to reconnect every Muse service consistently. */
 bool passport_proxy_command(const char *line);

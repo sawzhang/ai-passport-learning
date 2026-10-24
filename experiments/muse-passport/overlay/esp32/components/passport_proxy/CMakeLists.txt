@@ -1,5 +1,5 @@
 idf_component_register(SRCS "passport_proxy.c" "proxy_protocol.c"
-    INCLUDE_DIRS "include" PRIV_REQUIRES esp-tls esp_timer nvs_flash lwip)
+    INCLUDE_DIRS "include" PRIV_REQUIRES esp-tls esp_timer nvs_flash lwip esp_netif)
 if(NOT IDF_VERSION_MAJOR EQUAL 6 OR NOT IDF_VERSION_MINOR EQUAL 0 OR NOT IDF_VERSION_PATCH EQUAL 1)
     message(FATAL_ERROR "passport_proxy requires the pinned ESP-IDF 6.0.1 TLS layout")
 endif()

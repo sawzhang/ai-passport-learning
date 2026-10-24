@@ -29,8 +29,14 @@ static int load_endpoint(char *value, size_t cap)
     return e == ESP_OK ? (value[0] ? 1 : 0) : -1;
 }
 
+#ifdef ESP_PLATFORM
+static void start_probe(void);
+#endif
 bool passport_proxy_command(const char *line)
 {
+#ifdef ESP_PLATFORM
+    if (!strcmp(line, "proxy.test")) { start_probe(); return true; }
+#endif
     if (!strcmp(line, "proxy.status")) {
         char value[24];
         int state = load_endpoint(value, sizeof(value));
@@ -58,16 +64,65 @@ bool passport_proxy_command(const char *line)
     return true;
 }
 
+#ifdef ESP_PLATFORM
+#include "esp_netif.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include <stdatomic.h>
+static atomic_bool s_probe_active;
+static void probe_one(const char *label, const char *host, int port)
+{
+    esp_tls_cfg_t cfg = {.is_plain_tcp = true, .timeout_ms = 2500};
+    int fd = -1;
+    esp_tls_t *tls = esp_tls_init();
+    if (!tls) { puts("@proxy.test insufficient-memory"); return; }
+    int64_t start = esp_timer_get_time();
+    esp_err_t err = esp_tls_plain_tcp_connect(host, (int)strlen(host), port, &cfg, tls->error_handle, &fd);
+    printf("@proxy.test %s tcp=%s error=0x%x elapsed_ms=%lld\n", label,
+           err == ESP_OK ? "ok" : "failed", (unsigned)err,
+           (long long)((esp_timer_get_time() - start) / 1000));
+    if (fd >= 0) close(fd);
+    esp_tls_conn_destroy(tls);
+}
+static void probe_task(void *arg)
+{
+    (void)arg;
+    esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    esp_netif_ip_info_t info;
+    if (netif && esp_netif_get_ip_info(netif, &info) == ESP_OK) {
+        char gateway[16];
+        snprintf(gateway, sizeof(gateway), IPSTR, IP2STR(&info.gw));
+        probe_one("gateway", gateway, 80);
+
+    }
+    char value[24]; passport_proxy_endpoint endpoint;
+    if (load_endpoint(value, sizeof(value)) > 0 && passport_proxy_parse(value, &endpoint))
+        probe_one("Mac", endpoint.host, endpoint.port);
+    probe_one("Muse-direct", "api.muse.ai", 443);
+    puts("@proxy.test done"); fflush(stdout);
+    atomic_store(&s_probe_active, false);
+    vTaskDelete(NULL);
+}
+static void start_probe(void)
+{
+    if (atomic_exchange(&s_probe_active, true)) { puts("@proxy.test busy"); return; }
+    if (xTaskCreate(probe_task, "proxy_probe", 3072, NULL, 2, NULL) != pdPASS) {
+        atomic_store(&s_probe_active, false); puts("@proxy.test insufficient-memory");
+    }
+}
+#endif
+
 static bool wait_socket(int fd, bool writing, int64_t deadline)
 {
     for (;;) {
         int64_t remaining = deadline - esp_timer_get_time();
-        if (remaining <= 0) return false;
+        if (remaining <= 0) { errno = ETIMEDOUT; return false; }
         struct timeval tv = { .tv_sec = remaining / 1000000, .tv_usec = remaining % 1000000 };
         fd_set set;
         FD_ZERO(&set); FD_SET(fd, &set);
         int r = select(fd + 1, writing ? NULL : &set, writing ? &set : NULL, NULL, &tv);
         if (r < 0 && errno == EINTR) continue;
+        if (r == 0) errno = ETIMEDOUT;
         return r > 0;
     }
 }
@@ -128,7 +183,10 @@ static int prepare(const char *host, int len, int port, const esp_tls_cfg_t *cfg
     int fd = -1;
     esp_err_t e = esp_tls_plain_tcp_connect(proxy.host, (int)strlen(proxy.host), proxy.port,
                                            &tcp, tls->error_handle, &fd);
-    if (e != ESP_OK) goto fail;
+    if (e != ESP_OK) {
+        ESP_LOGE(TAG, "proxy TCP failed: error=0x%x errno=%d", (unsigned)e, errno);
+        goto fail;
+    }
     int flags = fcntl(fd, F_GETFL, 0);
     if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0 ||
         !tunnel(fd, host, len, port, deadline) ||

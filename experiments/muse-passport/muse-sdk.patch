@@ -426,10 +426,84 @@ index 0c1d350..436547d 100644
 +
 +Use the `muse-folotoy-ai-passport` overlay and `tools/muse/board.sh build passport`. This bench profile uses the compact Muse UI, three ADC keys, ES8311 audio and CW2017 battery meter. OK is push-to-talk; UP/DOWN opens the menu, then moves the selection; OK selects; hold DOWN for 0.5 seconds to return. Without PSRAM it uses Link voice upload and text replies, with tunnel, downloaded images and OTA disabled. USB-present/charging detection is not validated: USB is reported present to disable automatic battery sleep; software power-off is unsupported. Use the physical switch. Read the external experiment report for actual test status.
 diff --git a/esp32/main/app.c b/esp32/main/app.c
-index 3f80ee0..7d5307a 100644
+index 3f80ee0..e9246cc 100644
 --- a/esp32/main/app.c
 +++ b/esp32/main/app.c
-@@ -2473,6 +2473,9 @@ void app_run(void) {
+@@ -1049,8 +1049,13 @@ static void finish_vm_auth_refresh_task(void) {
+     auth_lock_give();
+ }
+ 
+-static void vm_auth_refresh_task(void *arg) {
+-    (void)arg;
++static void vm_auth_refresh_run(void) {
++#if CONFIG_MUSE_BOARD_FOLOTOY_AI_PASSPORT
++    if (noise_ctrl_is_connected()) {
++        finish_vm_auth_refresh_task();
++        return;
++    }
++#endif
+ 
+     bool have_operation_gate = false;
+     if (s_operation_gate) {
+@@ -1058,14 +1063,18 @@ static void vm_auth_refresh_task(void *arg) {
+         if (!have_operation_gate) {
+             ESP_LOGI(TAG, "skipping VM credential refresh; another operation is active");
+             finish_vm_auth_refresh_task();
+-            stack_monitor_record(NULL);
+-            vTaskDelete(NULL);
+             return;
+         }
+     }
+ 
+     ESP_LOGI(TAG, "refreshing VM credentials after tunnel auth rejection");
+     if (wifi_mgr_is_connected() && config_is_provisioned()) {
++#if CONFIG_MUSE_BOARD_FOLOTOY_AI_PASSPORT
++        // A failed retry loop still owns its 12 KiB task stack and can start
++        // another TLS handshake. Release both before the HTTPS VM fetch.
++        disconnect_vm_transports();
++        vTaskDelay(pdMS_TO_TICKS(20));
++#endif
+         if (!connect_preferred_vm_with_gate_held(0)) {
+             ESP_LOGW(TAG, "VM credential refresh failed after tunnel auth rejection");
+         }
+@@ -1077,9 +1086,16 @@ static void vm_auth_refresh_task(void *arg) {
+         operation_gate_give();
+     }
+     finish_vm_auth_refresh_task();
++}
++
++#if !CONFIG_MUSE_BOARD_FOLOTOY_AI_PASSPORT
++static void vm_auth_refresh_task(void *arg) {
++    (void)arg;
++    vm_auth_refresh_run();
+     stack_monitor_record(NULL);
+     vTaskDelete(NULL);
+ }
++#endif
+ 
+ static void schedule_vm_auth_refresh(void) {
+     int64_t now = esp_timer_get_time();
+@@ -1098,12 +1114,19 @@ static void schedule_vm_auth_refresh(void) {
+     s_last_vm_auth_refresh_attempt_us = now;
+     auth_lock_give();
+ 
++#if CONFIG_MUSE_BOARD_FOLOTOY_AI_PASSPORT
++    // The existing 8 KiB main task also performs the boot VM fetch. Queue the
++    // same work there: allocating another stack after UI/TLS fragmentation
++    // prevents this no-PSRAM board from recovering after a gateway outage.
++    ESP_LOGI(TAG, "VM credential refresh queued on main task");
++#else
+     if (xTaskCreate(vm_auth_refresh_task, "vm_auth_rfsh", 8192, NULL, 4, NULL) != pdPASS) {
+         auth_lock_take();
+         s_vm_auth_refresh_pending = false;
+         auth_lock_give();
+         ESP_LOGE(TAG, "failed to start VM credential refresh task");
+     }
++#endif
+ }
+ 
+ // ---- BLE callbacks ---------------------------------------------------------
+@@ -2473,6 +2496,9 @@ void app_run(void) {
      wifi_known_init();
  
      identity_init();
@@ -439,7 +513,7 @@ index 3f80ee0..7d5307a 100644
  #if CONFIG_MUSE_ENABLED
      muse_glue_storage_ready();
  #endif
-@@ -2622,6 +2625,7 @@ void app_run(void) {
+@@ -2622,6 +2648,7 @@ void app_run(void) {
  #endif
  
      if (!setup_complete) {
@@ -447,6 +521,19 @@ index 3f80ee0..7d5307a 100644
          // Unpaired devices advertise automatically — no button press is needed
          // to become discoverable. Pairing enforces the configured confirmation policy.
          open_setup_window("boot: unpaired");
+@@ -2740,6 +2767,12 @@ void app_run(void) {
+             reset_setup_from_control("deferred setup reset");
+         }
+ 
++#if CONFIG_MUSE_BOARD_FOLOTOY_AI_PASSPORT
++        auth_lock_take();
++        bool refresh_pending = s_vm_auth_refresh_pending;
++        auth_lock_give();
++        if (refresh_pending) vm_auth_refresh_run();
++#endif
+ #if CONFIG_MUSE_ENABLED
+         muse_keep_vm_session();
+ #endif
 diff --git a/esp32/main/ble_server.c b/esp32/main/ble_server.c
 index 889efea..f626d80 100644
 --- a/esp32/main/ble_server.c
@@ -625,8 +712,26 @@ index 889efea..f626d80 100644
      return 0;
  }
  
+diff --git a/esp32/main/muse_glue.c b/esp32/main/muse_glue.c
+index 51cba9a..805fd00 100644
+--- a/esp32/main/muse_glue.c
++++ b/esp32/main/muse_glue.c
+@@ -636,6 +636,13 @@ void muse_glue_start(void) {
+ void muse_glue_storage_ready(void) {
+     muse_ble_set_name(identity_ble_name());
+     xEventGroupSetBits(s_ready, BIT_STORAGE);
++#if CONFIG_MUSE_BOARD_FOLOTOY_AI_PASSPORT
++    // Let UI/audio startup finish and its 8 KiB boot stack retire before the
++    // main task starts TLS. Concurrent startup exhausts this C3's internal heap.
++    EventBits_t ready = xEventGroupWaitBits(s_ready, BIT_MUSE, pdFALSE, pdTRUE,
++                                           pdMS_TO_TICKS(20000));
++    if (!(ready & BIT_MUSE)) ESP_LOGW(TAG, "UI startup not ready before networking");
++#endif
+ }
+ 
+ void muse_glue_link_ready(void) {
 diff --git a/esp32/main/noise_control.cpp b/esp32/main/noise_control.cpp
-index a234208..bc2abd7 100644
+index a234208..a3ef29f 100644
 --- a/esp32/main/noise_control.cpp
 +++ b/esp32/main/noise_control.cpp
 @@ -101,9 +101,9 @@ static char s_noise_host[256] = NOISE_DEFAULT_HOST;
@@ -683,7 +788,22 @@ index a234208..bc2abd7 100644
  static char s_node_id[64];
  static char s_display_name[64];
  static char s_wifi_ssid[33];
-@@ -810,18 +844,19 @@ static json_send_status send_json_body_chunk(esp_tls_t *tls, ClientSession &sess
+@@ -158,7 +192,14 @@ static bool s_register_acked = false;
+ static bool s_heartbeat_registered = false;
+ static TaskHandle_t s_task = nullptr;
+ 
++#if CONFIG_MUSE_BOARD_FOLOTOY_AI_PASSPORT
++// Measured 8+ KiB unused on the 12 KiB stack through TLS, registration and
++// real voice turns. Keep 8 KiB here, retaining stack guards and headroom while
++// giving certificate verification its transient allocation budget.
++#define NOISE_CTRL_STACK 8192
++#else
+ #define NOISE_CTRL_STACK 12288
++#endif
+ #if CONFIG_MUSE_ENABLED && CONFIG_SPIRAM
+ // Muse's display and audio leave internal RAM fragmented by the time a session
+ // starts, often without a 12 KB block for this stack. Hold one from boot and
+@@ -810,18 +851,19 @@ static json_send_status send_json_body_chunk(esp_tls_t *tls, ClientSession &sess
      const uint8_t *data = reinterpret_cast<const uint8_t *>(body.json)
          + body.json_offset;
      if (prefix_len) {
@@ -714,7 +834,7 @@ index a234208..bc2abd7 100644
      }
  
      bool last = body.json_offset + n == body.json_len;
-@@ -908,7 +943,7 @@ static bool tunnel_send_body(void *vctx, const uint8_t *data, size_t len) {
+@@ -908,7 +950,7 @@ static bool tunnel_send_body(void *vctx, const uint8_t *data, size_t len) {
  #define REQ_MAX_HEADERS 6
  // Body bytes queued at once. Without PSRAM a larger backlog leaves no block big
  // enough for mbedTLS's per-write record buffer, and the session drops.
@@ -723,7 +843,7 @@ index a234208..bc2abd7 100644
  // Largest free block a request send needs: the TLS record plus overhead.
  #define REQ_TLS_BLOCK   (CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN + 512)
  
-@@ -1772,16 +1807,31 @@ static void process_inbound_body_chunk(
+@@ -1772,16 +1814,31 @@ static void process_inbound_body_chunk(
                      cJSON *id = cJSON_GetObjectItem(msg, "id");
                      if (cJSON_IsString(id) && id->valuestring
                          && strcmp(id->valuestring, s_register_req_id) == 0) {
@@ -765,7 +885,7 @@ index a234208..bc2abd7 100644
                      }
                      cJSON_Delete(msg);
                  }
-@@ -1816,6 +1866,12 @@ static void idle_wait(esp_tls_t *tls, uint64_t last_busy_us) {
+@@ -1816,6 +1873,12 @@ static void idle_wait(esp_tls_t *tls, uint64_t last_busy_us) {
  }
  
  static session_result_t run_session(stack_monitor_t *stack) {
@@ -778,7 +898,7 @@ index a234208..bc2abd7 100644
      session_result_t result = SESSION_FAILED;
      uint8_t *ws_buf = nullptr, *rx_buf = nullptr;
      uint8_t *svc_scratch = nullptr, *env_scratch = nullptr;
-@@ -1861,6 +1917,23 @@ static session_result_t run_session(stack_monitor_t *stack) {
+@@ -1861,6 +1924,23 @@ static session_result_t run_session(stack_monitor_t *stack) {
      ClientSession session(crypto);
  
      size_t ws_buf_size = WS_BUF_SIZE;
@@ -802,7 +922,7 @@ index a234208..bc2abd7 100644
      ws_buf = static_cast<uint8_t *>(
          heap_caps_malloc(ws_buf_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
      if (!ws_buf) ws_buf = static_cast<uint8_t *>(malloc(ws_buf_size));
-@@ -1886,9 +1959,14 @@ static session_result_t run_session(stack_monitor_t *stack) {
+@@ -1886,9 +1966,14 @@ static session_result_t run_session(stack_monitor_t *stack) {
          heap_caps_malloc(SVC_FRAME_SCRATCH, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
      if (!sr_scratch) sr_scratch = static_cast<uint8_t *>(malloc(SVC_FRAME_SCRATCH));
  
@@ -818,7 +938,7 @@ index a234208..bc2abd7 100644
          goto cleanup;
      }
  
-@@ -2240,13 +2318,20 @@ static session_result_t run_session(stack_monitor_t *stack) {
+@@ -2240,13 +2325,20 @@ static session_result_t run_session(stack_monitor_t *stack) {
  
  cleanup:
      clear_pending_json_body(control_tx);
@@ -840,7 +960,7 @@ index a234208..bc2abd7 100644
      esp_tls_conn_destroy(tls);
      return result;
  }
-@@ -2435,20 +2520,21 @@ extern "C" int64_t noise_ctrl_req_open(const char *verb, const char *path,
+@@ -2435,20 +2527,21 @@ extern "C" int64_t noise_ctrl_req_open(const char *verb, const char *path,
  extern "C" bool noise_ctrl_req_send(int64_t id, const void *data, size_t len,
                                      bool end_body, int wait_ms) {
      if (!s_req_q || id < REQ_STREAM_BASE) return false;

@@ -42,3 +42,7 @@ python3 -m unittest discover -s experiments/muse-passport/.work/muse-gadget-sdk/
 ## 中文显示专项练习
 
 沿中文回复依次检查 UTF-8 截断、双列分页、LVGL 回退字形查找与 LCD 刷新像素。运行 `test_passport_chinese.py`，用 `generate_chinese_font.py` 复现字体，再按[字体指南](../experiments/muse-passport/overlay/esp32/components/muse/fonts/README.zh_CN.md)采集实际 LCD 像素。验收标准是中英混排在两行内清晰可读、UTF-8 边界完整、应用镜像通过分区容量校验。云端字符串正常或字形查找成功，都不能单独证明实际渲染正确。
+
+## 网络恢复专项练习
+
+分别核对 Mac 自访问、设备到网关、设备到 Mac、真实 TLS 与 Link 注册，不能混为一个通过条件。按[代理指南](../experiments/muse-passport/proxy-guide.zh_CN.md)在空闲时使用 `proxy.test`，理解为何 Wi-Fi 重新关联可在不改 TUN 时恢复局域网路径。运行 `test_passport_refresh.py`，追踪凭据刷新如何复用已有主任务，避免新增 8 KiB 栈及失败会话的并发 TLS，并验证 UI 就绪等待有超时。区分已测的局域网恢复和仍存在的官方 502；没有实际回复就不能宣称语音验收通过。

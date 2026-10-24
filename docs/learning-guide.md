@@ -42,3 +42,7 @@ Prioritize easier proxy startup, configuration visibility, then long-run memory 
 ## Chinese display exercise
 
 Trace a Chinese reply through UTF-8 truncation, two-column pagination, LVGL fallback lookup and the LCD flush buffer. Run `test_passport_chinese.py`, reproduce the font using `generate_chinese_font.py`, then follow the [font guide](../experiments/muse-passport/overlay/esp32/components/muse/fonts/README.md) to capture real LCD pixels. Completion requires readable mixed Chinese/Latin text within two lines, complete UTF-8 boundaries and a verified application partition fit. A valid cloud string or successful glyph lookup alone does not prove correct rendering.
+
+## Network recovery exercise
+
+Compare Mac self-access, ESP32-to-gateway, ESP32-to-Mac and actual TLS/Link registration separately. Use the [proxy guide](../experiments/muse-passport/proxy-guide.md) and `proxy.test` while idle. Explain why reassociating Wi-Fi may restore a stale LAN path without changing TUN. Run `test_passport_refresh.py` and trace the refresh queue through the existing main task: no new 8 KiB worker, no simultaneous failed-session TLS, bounded UI readiness. Distinguish the measured LAN recovery from the remaining official 502 and do not claim voice acceptance without a reply.

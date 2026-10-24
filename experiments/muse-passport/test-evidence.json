@@ -207,5 +207,31 @@
       "actual_lcd_pixels_inspected": true,
       "scope": "Chinese is readable; Muse continued prior context rather than returning only the requested six characters."
     }
+  },
+  "proxy_lan_repair_2026_10_24": {
+    "application_sha256": "86eb9659d50081ef3670d6c71d892982e3826ceff3457fa72cd0fc0752875a67",
+    "application_bytes": 3805184,
+    "app_only_flash": "verified",
+    "tun_configuration_unchanged": true,
+    "network_repair": "Mac Wi-Fi reassociation; unchanged LAN addresses",
+    "cause_scope": "Wi-Fi/AP session path; exact origin unproven",
+    "temporary_experiments": "removed; original DHCP and 18087 restored",
+    "sdk_host_tests": {
+      "total": 175,
+      "passed": 173,
+      "skipped": 2
+    },
+    "adapter_tests_passed": 8,
+    "repository_tests": "passed",
+    "proxy_sigkill_recovery": "passed",
+    "tls_api_and_device_mac_tcp": "passed",
+    "observed_stack_min_free_bytes": {
+      "noise_ctrl": 4112,
+      "main": 2128
+    },
+    "cloud_websocket": "502 reproduced on device and host",
+    "end_to_end_voice": "blocked by cloud WebSocket 502",
+    "chinese_reply_visual_acceptance": "not repeated; cloud blocked",
+    "tts": "not added per user instruction"
   }
 }
